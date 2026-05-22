@@ -21,12 +21,12 @@ DEFAULT_DB = "/mnt/Backup_2/Biblioteca/metadata.db"
 
 def log_event(level: str, message: str, **params):
     """
-    Registra evento em formato estruturado PDCL (captura linha automaticamente)
+    Register event in PDCL structured format (captures line automatically)
     
     Args:
-        level: Nível do log (INFO, ALERT, ERROR, SUCCESS, DEBUG, START, END, DATA, TOOL, CACHE, SAVE)
-        message: Mensagem do evento
-        **params: Parâmetros adicionais
+        level: Log level (INFO, ALERT, ERROR, SUCCESS, DEBUG, START, END, DATA, TOOL, CACHE, SAVE)
+        message: Event message
+        **params: Additional parameters
     """
     timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     emoji_map = {
@@ -58,15 +58,15 @@ def log_event(level: str, message: str, **params):
 
 
 def connect(db_path: str) -> sqlite3.Connection:
-    log_event('START', 'Conectando ao banco de dados Calibre', db_path=db_path)
+    log_event('START', 'Connecting to Calibre database', db_path=db_path)
     db = Path(db_path)
     if not db.exists():
-        log_event('ERROR', 'Banco de dados não encontrado', db_path=str(db))
+        log_event('ERROR', 'Database not found', db_path=str(db))
         raise SystemExit(f"metadata.db not found: {db}")
     uri = f"file:{db}?mode=ro"
     conn = sqlite3.connect(uri, uri=True)
     conn.row_factory = sqlite3.Row
-    log_event('SUCCESS', 'Conexão estabelecida com sucesso', db_path=db_path)
+    log_event('SUCCESS', 'Connection established successfully', db_path=db_path)
     return conn
 
 
@@ -175,19 +175,19 @@ def row_to_book(row: sqlite3.Row, include_comments: bool = False) -> dict[str, A
 
 
 def list_books(conn: sqlite3.Connection, limit: int, offset: int) -> list[dict[str, Any]]:
-    log_event('START', 'Listando livros', limit=limit, offset=offset)
+    log_event('START', 'Listing books', limit=limit, offset=offset)
     rows = conn.execute(
         book_select(order_limit="ORDER BY b.sort COLLATE NOCASE LIMIT ? OFFSET ?"),
         (limit, offset),
     ).fetchall()
     books = [row_to_book(row) for row in rows]
-    log_event('DATA', 'Livros listados', count=len(books))
-    log_event('SUCCESS', 'Listagem concluída', count=len(books))
+    log_event('DATA', 'Books listed', count=len(books))
+    log_event('SUCCESS', 'Listing completed', count=len(books))
     return books
 
 
 def search_books(conn: sqlite3.Connection, query: str, limit: int) -> list[dict[str, Any]]:
-    log_event('START', 'Buscando livros', query=query, limit=limit)
+    log_event('START', 'Searching books', query=query, limit=limit)
     pattern = f"%{query}%"
     rows = conn.execute(
         book_select(
@@ -212,24 +212,24 @@ def search_books(conn: sqlite3.Connection, query: str, limit: int) -> list[dict[
         (pattern, pattern, pattern, pattern, limit),
     ).fetchall()
     books = [row_to_book(row) for row in rows]
-    log_event('DATA', 'Resultados encontrados', count=len(books), query=query)
-    log_event('SUCCESS', 'Busca concluída', count=len(books))
+    log_event('DATA', 'Results found', count=len(books), query=query)
+    log_event('SUCCESS', 'Search completed', count=len(books))
     return books
 
 
 def metadata(conn: sqlite3.Connection, book_id: int) -> dict[str, Any]:
-    log_event('START', 'Obtendo metadados do livro', book_id=book_id)
+    log_event('START', 'Getting book metadata', book_id=book_id)
     row = conn.execute(book_select(where="WHERE b.id = ?"), (book_id,)).fetchone()
     if row is None:
-        log_event('ERROR', 'Livro não encontrado', book_id=book_id)
+        log_event('ERROR', 'Book not found', book_id=book_id)
         raise SystemExit(f"book id not found: {book_id}")
     book = row_to_book(row, include_comments=True)
-    log_event('SUCCESS', 'Metadados obtidos com sucesso', book_id=book_id)
+    log_event('SUCCESS', 'Metadata obtained successfully', book_id=book_id)
     return book
 
 
 def format_path(conn: sqlite3.Connection, db_path: str, book_id: int, fmt: str | None) -> dict[str, Any]:
-    log_event('START', 'Obtendo caminho do arquivo', book_id=book_id, format=fmt)
+    log_event('START', 'Getting file path', book_id=book_id, format=fmt)
     book = metadata(conn, book_id)
     library_dir = Path(db_path).resolve().parent
 
@@ -254,8 +254,8 @@ def format_path(conn: sqlite3.Connection, db_path: str, book_id: int, fmt: str |
             }
         )
 
-    log_event('DATA', 'Formatos encontrados', count=len(formats), book_id=book_id)
-    log_event('SUCCESS', 'Caminhos obtidos com sucesso', book_id=book_id)
+    log_event('DATA', 'Formats found', count=len(formats), book_id=book_id)
+    log_event('SUCCESS', 'Paths obtained successfully', book_id=book_id)
     return {"book": book, "formats": formats}
 
 
@@ -264,7 +264,7 @@ def print_json(data: Any) -> None:
 
 
 def main(argv: list[str]) -> int:
-    log_event('START', 'Iniciando calibre_query')
+    log_event('START', 'Starting calibre_query')
     parser = argparse.ArgumentParser(description="Read-only queries for a Calibre metadata.db")
     parser.add_argument("--db", default=os.environ.get("CALIBRE_METADATA_DB", DEFAULT_DB))
     sub = parser.add_subparsers(dest="command", required=True)
@@ -285,7 +285,7 @@ def main(argv: list[str]) -> int:
     path_parser.add_argument("--format", dest="fmt")
 
     args = parser.parse_args(argv)
-    log_event('INFO', 'Comando recebido', command=args.command)
+    log_event('INFO', 'Command received', command=args.command)
     conn = connect(args.db)
 
     if args.command == "list":
@@ -297,7 +297,7 @@ def main(argv: list[str]) -> int:
     elif args.command == "path":
         print_json(format_path(conn, args.db, args.book_id, args.fmt))
 
-    log_event('END', 'Comando concluído com sucesso', command=args.command)
+    log_event('END', 'Command completed successfully', command=args.command)
     return 0
 
 

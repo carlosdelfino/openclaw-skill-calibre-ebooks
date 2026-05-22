@@ -1,6 +1,6 @@
 ![visitors](https://visitor-badge.laobi.icu/badge?page_id=carlosdelfino.openclaw-skill-calibre-ebooks)
 [![License: CC BY-SA 4.0](https://img.shields.io/badge/License-CC_BY--SA_4.0-blue.svg)](https://creativecommons.org/licenses/by-sa/4.0/)
-![Language: Portuguese](https://img.shields.io/badge/Language-Portuguese-brightgreen.svg)
+![Language: English](https://img.shields.io/badge/Language-English-brightgreen.svg)
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
 ![Calibre](https://img.shields.io/badge/Calibre-Integration-orange)
 ![RAG](https://img.shields.io/badge/RAG-Semantic-green)
@@ -10,112 +10,112 @@
 
 <!-- Animated Header -->
 <p align="center">
-  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:0f172a,50:1a56db,100:10b981&height=220&section=header&text=Calibre%20E-books&fontSize=42&fontColor=ffffff&animation=fadeIn&fontAlignY=35&desc=Skill%20OpenClaw%20para%20Biblioteca%20Calibre%20Local&descSize=18&descAlignY=55&descColor=94a3b8" width="100%" alt="Calibre E-books Header"/>
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:0f172a,50:1a56db,100:10b981&height=220&section=header&text=Calibre%20E-books&fontSize=42&fontColor=ffffff&animation=fadeIn&fontAlignY=35&desc=OpenClaw%20Skill%20for%20Local%20Calibre%20Library&descSize=18&descAlignY=55&descColor=94a3b8" width="100%" alt="Calibre E-books Header"/>
 </p>
 
 ## Calibre E-books Skill
 
-Skill OpenClaw para consultar e operar a biblioteca local do Calibre, com suporte a busca semântica via RAG.
+OpenClaw skill to query and operate the local Calibre library, with support for semantic search via RAG.
 
-### Funcionalidades Principais
+### Key Features
 
-- **Consulta de Metadados**: Listar, buscar e visualizar informações de livros usando `calibredb`
-- **Exportação de Arquivos**: Exportar livros em diferentes formatos (PDF, EPUB, etc.)
-- **Busca Semântica**: Indexação e busca contextual em documentos usando RAG
-- **Fallback SQLite**: Consulta read-only direta no `metadata.db` quando necessário
+- **Metadata Query**: List, search, and view book information using `calibredb`
+- **File Export**: Export books in different formats (PDF, EPUB, etc.)
+- **Semantic Search**: Index and contextual search in documents using RAG
+- **SQLite Fallback**: Direct read-only query on `metadata.db` when needed
 
-### Configuração
+### Configuration
 
-- **Biblioteca Padrão**: `/mnt/Backup_2/Biblioteca`
-- **Banco de Metadados**: `/mnt/Backup_2/Biblioteca/metadata.db`
-- **Script de Consulta**: `scripts/calibre_query.py`
-- **Script de RAG**: `scripts/document_semantic_rag.py`
-- **Base RAG**: `/tmp/openclaw-calibre-rag/data`
+- **Default Library**: `/mnt/Backup_2/Biblioteca`
+- **Metadata Database**: `/mnt/Backup_2/Biblioteca/metadata.db`
+- **Query Script**: `scripts/calibre_query.py`
+- **RAG Script**: `scripts/document_semantic_rag.py`
+- **RAG Base**: `/tmp/openclaw-calibre-rag/data`
 
-### Pré-requisitos
+### Prerequisites
 
-- Calibre instalado com `calibredb` disponível
-- Python 3.8+ para scripts de consulta e RAG
-- Dependências RAG (opcional): ver `scripts/requirements-rag.txt`
+- Calibre installed with `calibredb` available
+- Python 3.8+ for query and RAG scripts
+- RAG dependencies (optional): see `scripts/requirements-rag.txt`
 
-### Uso Básico
+### Basic Usage
 
-#### Listar livros
+#### List books
 
 ```bash
 calibredb list --library-path "/mnt/Backup_2/Biblioteca" --fields id,title,authors,formats --limit 20
 ```
 
-#### Buscar por termo
+#### Search by term
 
 ```bash
 calibredb search --library-path "/mnt/Backup_2/Biblioteca" "python"
 ```
 
-#### Ver metadados
+#### View metadata
 
 ```bash
 calibredb show_metadata --library-path "/mnt/Backup_2/Biblioteca" 123
 ```
 
-#### Exportar livro
+#### Export book
 
 ```bash
 mkdir -p /tmp/openclaw-calibre-export
 calibredb export --library-path "/mnt/Backup_2/Biblioteca" --to-dir /tmp/openclaw-calibre-export 123
 ```
 
-### RAG - Busca Semântica
+### RAG - Semantic Search
 
-#### Checar dependências
+#### Check dependencies
 
 ```bash
 python3 skills/calibre-ebooks/scripts/document_semantic_rag.py --check --json
 ```
 
-#### Indexar livro pelo ID Calibre
+#### Index book by Calibre ID
 
 ```bash
 python3 skills/calibre-ebooks/scripts/document_semantic_rag.py --calibre-id 123 --format PDF --json
 ```
 
-#### Buscar na base RAG
+#### Search in RAG base
 
 ```bash
-python3 skills/calibre-ebooks/scripts/document_semantic_rag.py --search "redes neurais convolucionais" --json
+python3 skills/calibre-ebooks/scripts/document_semantic_rag.py --search "convolutional neural networks" --json
 ```
 
-### Estrutura do Projeto
+### Project Structure
 
 ```
 calibre-ebooks/
-├── .env                    # Configurações de ambiente
-├── .env.example            # Exemplo de configurações
-├── README.md               # Este arquivo
-├── SKILL.md                # Documentação do skill para OpenClaw
+├── .env                    # Environment configurations
+├── .env.example            # Configuration example
+├── README.md               # This file
+├── SKILL.md                # Skill documentation for OpenClaw
 └── scripts/
-    ├── calibre_query.py           # Consulta read-only via SQLite
-    ├── document_semantic_rag.py   # Conversão e RAG
-    └── requirements-rag.txt       # Dependências RAG
+    ├── calibre_query.py           # Read-only query via SQLite
+    ├── document_semantic_rag.py   # Conversion and RAG
+    └── requirements-rag.txt       # RAG dependencies
 ```
 
-### Notas Importantes
+### Important Notes
 
-- Sempre passe o diretório da biblioteca para `calibredb`, não o arquivo `.db`
-- Use `scripts/calibre_query.py` como fallback quando `calibredb` falhar
-- Nunca use comandos destrutivos sem pedido explícito do usuário
-- Para RAG, instale dependências via `pip install -r scripts/requirements-rag.txt`
+- Always pass the library directory to `calibredb`, not the `.db` file
+- Use `scripts/calibre_query.py` as a fallback when `calibredb` fails
+- Never use destructive commands without explicit user request
+- For RAG, install dependencies via `pip install -r scripts/requirements-rag.txt`
 
 <p align="center">
   <img src="https://capsule-render.vercel.app/api?type=waving&color=0:10b981,50:1a56db,100:0f172a&height=120&section=footer" width="100%" alt="Footer"/>
 </p>
 
 ---
-**Resumo:** Skill OpenClaw para integração com biblioteca Calibre local, suportando consulta de metadados, exportação de arquivos e busca semântica via RAG.
-**Data de Criação:** 2026-05-22
-**Autor:** Carlos Delfino
-**Versão:** 1.0
-**Última Atualização:** 2026-05-22
-**Atualizado por:** Carlos Delfino
-**Histórico de Alterações:**
-- 2026-05-22 - Criado por Carlos Delfino - Versão 1.0 - Ajuste às novas regras de documentação
+**Summary:** OpenClaw skill for integration with local Calibre library, supporting metadata query, file export, and semantic search via RAG.
+**Creation Date:** 2026-05-22
+**Author:** Carlos Delfino
+**Version:** 1.0
+**Last Update:** 2026-05-22
+**Updated by:** Carlos Delfino
+**Change History:**
+- 2026-05-22 - Created by Carlos Delfino - Version 1.0 - Adjustment to new documentation rules

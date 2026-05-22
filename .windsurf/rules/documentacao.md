@@ -57,7 +57,7 @@ Ignore os arquivos abaixo listados, não intervindo em sua formatação e nem em
 
 * SKILL.md
 
-### FOOTER ANIMADO (Antes do resumo final)
+### 5. FOOTER ANIMADO (Antes do resumo final)
 
 ```markdown
 <p align="center">
@@ -65,7 +65,7 @@ Ignore os arquivos abaixo listados, não intervindo em sua formatação e nem em
 </p>
 ```
 
-### 5. RESUMO FINAL E HISTÓRICO (Obrigatório)
+### 6. RESUMO FINAL E HISTÓRICO (Obrigatório)
 
 O Autor Inicial e quem atualizou inicialmente é "Rapport GenerAtiva".
 
@@ -84,7 +84,7 @@ O Autor Inicial e quem atualizou inicialmente é "Rapport GenerAtiva".
 - [AAAA-MM-DD] - Atualizado por [Autor] - [Descrição da alteração] - Versão [Versão]
 ```
 
-### 6. HISTÓRICO AUTOMÁTICO
+### 7. HISTÓRICO AUTOMÁTICO
 
 O projeto utiliza uma ferramenta automática para gerenciar o histórico de alterações:
 
