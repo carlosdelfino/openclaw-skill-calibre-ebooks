@@ -1,8 +1,7 @@
 ---
-name: calibre-ebooks
+name: Calibre Ebooks
 description: Query and operate the local Calibre library using calibredb and metadata.db. Use when the user asks to list, search, locate, summarize metadata, find available formats, export, or prepare books/e-books/PDFs/EPUBs from the Calibre library for reading, analysis, or RAG.
 ---
-
 # Calibre E-books
 
 Use this skill to work with the local Calibre library and a semantic RAG base derived from the books.
