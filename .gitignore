@@ -1,1 +1,6 @@
 .env
+data/
+converteds/
+__pycache__/
+*.pyc
+.windsurf/

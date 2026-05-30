@@ -1,161 +1,170 @@
 ---
-name: Calibre Ebooks
-description: Query and operate the local Calibre library using calibredb and metadata.db. Use when the user asks to list, search, locate, summarize metadata, find available formats, export, or prepare books/e-books/PDFs/EPUBs from the Calibre library for reading, analysis, or RAG.
+name: calibre-ebooks
+description: Query the local Books API for Calibre books using OpenAPI discovery, then use local Calibre/RAG helpers only when file resolution or semantic indexing is explicitly needed.
+metadata: '{"openclaw":{"requires":{"bins":["node","python3"]}}}'
 ---
 # Calibre E-books
 
-Use this skill to work with the local Calibre library and a semantic RAG base derived from the books.
+Use this skill to work with the local Calibre-backed Books API and, when needed,
+prepare books for semantic RAG.
 
-## Configuration
+## Primary Interface
 
-- Default Calibre library: `/mnt/Backup_2/Biblioteca`
-- Metadata database: `/mnt/Backup_2/Biblioteca/metadata.db`
-- Official command: `calibredb`
-- Read-only metadata script: `scripts/calibre_query.py`
-- Conversion, indexing, and RAG script: `scripts/document_semantic_rag.py`
-- Default RAG base: `/tmp/openclaw-calibre-rag/data`
+Use the Books API first for catalog discovery, metadata, formats, access links,
+and downloads.
+
+- Base URL: `http://0.0.0.0:6180`
+- Swagger UI: `http://0.0.0.0:6180/docs`
+- ReDoc: `http://0.0.0.0:6180/redoc`
+- OpenAPI JSON: `http://0.0.0.0:6180/openapi.json`
+- Node.js client: `scripts/books-api-client.mjs`
+
+Do not assume endpoint names. Read `/openapi.json` through the Node.js client,
+then choose the path, method, query parameters, request body, and response schema
+published by the running service.
+
+## Node.js API Client
+
+Run commands from the workspace root:
+
+```bash
+cd /home/carlosdelfino/workspace/openclaw-workspace
+```
+
+Show documentation URLs:
+
+```bash
+node skills/calibre-ebooks/scripts/books-api-client.mjs docs
+```
+
+Fetch the current OpenAPI specification:
+
+```bash
+node skills/calibre-ebooks/scripts/books-api-client.mjs openapi
+```
+
+List available API paths with methods and parameters:
+
+```bash
+node skills/calibre-ebooks/scripts/books-api-client.mjs paths
+```
+
+Search using endpoint discovery from OpenAPI:
+
+```bash
+node skills/calibre-ebooks/scripts/books-api-client.mjs search "termo ou titulo" --limit 10
+```
+
+Get book details by ID using endpoint discovery from OpenAPI:
+
+```bash
+node skills/calibre-ebooks/scripts/books-api-client.mjs book 123
+```
+
+Call an explicit endpoint after inspecting OpenAPI:
+
+```bash
+node skills/calibre-ebooks/scripts/books-api-client.mjs request GET /books --query q=python --query limit=10
+node skills/calibre-ebooks/scripts/books-api-client.mjs request GET /books/123
+node skills/calibre-ebooks/scripts/books-api-client.mjs request POST /search --body '{"query":"python","limit":10}'
+```
+
+Save a file response when the API exposes a download endpoint:
+
+```bash
+node skills/calibre-ebooks/scripts/books-api-client.mjs request GET /books/123/download --query format=PDF --output /tmp/openclaw-book-123.pdf
+```
+
+If `BOOKS_API_URL` is set, the client uses it instead of
+`http://0.0.0.0:6180`. You can also pass `--base URL`.
+
+## Recommended Workflow
+
+1. Understand whether the user wants discovery, metadata, file access, download,
+   or semantic analysis.
+2. Run `books-api-client.mjs paths` or `openapi` before making specific API
+   calls unless the exact endpoint has already been confirmed in this session.
+3. Search and fetch details through the Books API. Confirm title, authors,
+   formats, and access/download links before promising delivery or analysis.
+4. If the API exposes download/access endpoints, use `books-api-client.mjs
+   request` with the exact method and path from OpenAPI.
+5. Use local Python helpers only when the task explicitly provides/configures a
+   local metadata database through `CALIBRE_METADATA_DB` or CLI options for a
+   fallback/RAG operation.
+6. Never use destructive Calibre operations without explicit user request.
+
+## Local Fallbacks
+
+Use these only as fallback/augmentation after the Books API path has been
+checked.
+
+Local fallback configuration:
+
+- Calibre metadata database: configure with `CALIBRE_METADATA_DB` or `--db` /
+  `--calibre-metadata-db` only when a local fallback is explicitly needed.
+- Read-only metadata fallback: `scripts/calibre_query.py`
+- Conversion, indexing, and RAG: `scripts/document_semantic_rag.py`
+- Default RAG data: `/tmp/openclaw-calibre-rag/data`
 - Default converted Markdown: `/tmp/openclaw-calibre-rag/converteds`
-- Always pass the library directory to `calibredb`, not the `.db` file:
+
+Read-only Calibre fallback:
 
 ```bash
-calibredb list --library-path "/mnt/Backup_2/Biblioteca"
+python3 skills/calibre-ebooks/scripts/calibre_query.py --db "$CALIBRE_METADATA_DB" search "python" --limit 10
+python3 skills/calibre-ebooks/scripts/calibre_query.py --db "$CALIBRE_METADATA_DB" metadata 123
+python3 skills/calibre-ebooks/scripts/calibre_query.py --db "$CALIBRE_METADATA_DB" path 123 --format PDF
 ```
 
-If `calibredb` fails due to sandbox, mutex, or Calibre configuration, request elevated permission to repeat the query. For read-only queries, use `scripts/calibre_query.py` as a SQLite fallback.
-
-## Recommended workflow
-
-1. Understand if the user wants discovery, metadata, exported file, or analysis/RAG.
-2. Start with read-only operations: `list`, `search`, `show_metadata`, or `scripts/calibre_query.py`.
-3. Confirm the correct `id` before exporting, changing metadata, adding, or removing anything.
-4. Prefer exporting to `/tmp/openclaw-calibre-export` when the user requests file access.
-5. For RAG, index the file or Calibre `id` with `document_semantic_rag.py`, then search with `--search`.
-6. Never use destructive commands (`remove`, `remove_format`, `set_metadata`, `set_custom`, `restore_database`) without explicit request.
-
-## Useful calibredb commands
-
-List books:
-
-```bash
-calibredb list --library-path "/mnt/Backup_2/Biblioteca" --fields id,title,authors,formats --limit 20
-```
-
-Search by term:
-
-```bash
-calibredb search --library-path "/mnt/Backup_2/Biblioteca" "python"
-```
-
-View complete metadata of a book:
-
-```bash
-calibredb show_metadata --library-path "/mnt/Backup_2/Biblioteca" 123
-```
-
-Export a book to a temporary directory:
-
-```bash
-mkdir -p /tmp/openclaw-calibre-export
-calibredb export --library-path "/mnt/Backup_2/Biblioteca" --to-dir /tmp/openclaw-calibre-export 123
-```
-
-Use full-text search if the index exists:
-
-```bash
-calibredb fts_search --library-path "/mnt/Backup_2/Biblioteca" "searched term"
-```
-
-## SQLite read-only fallback
-
-Use the script when you only need to query `metadata.db` without depending on the Calibre process:
-
-```bash
-python3 skills/calibre-ebooks/scripts/calibre_query.py list --limit 20
-python3 skills/calibre-ebooks/scripts/calibre_query.py search "python" --limit 10
-python3 skills/calibre-ebooks/scripts/calibre_query.py metadata 123
-python3 skills/calibre-ebooks/scripts/calibre_query.py path 123 --format PDF
-```
-
-The script returns JSON by default and does not write to the library.
-
-## Conversion and RAG services
-
-Before converting or searching semantically, check dependencies:
+RAG dependency check:
 
 ```bash
 python3 skills/calibre-ebooks/scripts/document_semantic_rag.py --check --json
 ```
 
-If Python dependencies are missing, install the RAG set:
-
-```bash
-pip install -r skills/calibre-ebooks/scripts/requirements-rag.txt
-```
-
-Index a book directly by Calibre ID:
+Index by local Calibre ID after confirming the format:
 
 ```bash
 python3 skills/calibre-ebooks/scripts/document_semantic_rag.py --calibre-id 123 --format PDF --json
 ```
 
-Index an exported or resolved file:
+Index an API-downloaded or user-provided file:
 
 ```bash
 python3 skills/calibre-ebooks/scripts/document_semantic_rag.py --convert "/path/book.pdf" --json
 ```
 
-Index all supported documents in a folder:
+Search in the local RAG base:
 
 ```bash
-python3 skills/calibre-ebooks/scripts/document_semantic_rag.py --convert-all "/path/folder"
+python3 skills/calibre-ebooks/scripts/document_semantic_rag.py --search "consulta" --json
 ```
 
-Search in the RAG base:
-
-```bash
-python3 skills/calibre-ebooks/scripts/document_semantic_rag.py --search "convolutional neural networks" --json
-```
-
-List or check base status:
+List or check local RAG status:
 
 ```bash
 python3 skills/calibre-ebooks/scripts/document_semantic_rag.py --list --json
 python3 skills/calibre-ebooks/scripts/document_semantic_rag.py --status --json
 ```
 
-Removing a book from the RAG base requires the internal ID returned during indexing/listing, not the Calibre ID:
+Remove an indexed book only when the user explicitly asks:
 
 ```bash
 python3 skills/calibre-ebooks/scripts/document_semantic_rag.py --delete RAG_BOOK_ID --json
 ```
 
-### RAG strategy
+## Response Rules
 
-- Convert PDF to Markdown with PyMuPDF.
-- Convert EPUB to Markdown with ebooklib, BeautifulSoup, and markdownify.
-- Convert DjVu via OCR when external dependencies are available.
-- Split text into chunks with configurable overlap.
-- Generate embeddings via Ollama (`OLLAMA_MODEL`, skill default: `nomic-embed-text-v2-moe`).
-- Store metadata and chunks in SQLite.
-- Store embeddings in ChromaDB.
-- Hybrid search: exact/partial text in SQLite first, semantic search in ChromaDB after.
-
-### RAG configuration
-
-The script reads `skills/calibre-ebooks/.env` and accepts CLI override:
-
-```bash
-python3 skills/calibre-ebooks/scripts/document_semantic_rag.py --status --data-dir /tmp/my-base --converted-dir /tmp/my-markdowns
-python3 skills/calibre-ebooks/scripts/document_semantic_rag.py --search "term" --embedding-model nomic-embed-text-v2-moe
-```
-
-If a base was already created with another embedding model, use the same previous model. Only use `--allow-model-mismatch` when accepting potentially incorrect results.
-
-## User responses
-
-- Show `id`, title, authors, and formats when there are multiple results.
-- Inform when a book lacks PDF/EPUB before promising analysis or delivery.
-- When preparing RAG, first locate the book via `calibre_query.py`, confirm available format, then use `document_semantic_rag.py --calibre-id`.
-- For RAG-based responses, cite document, page, similarity, and relevant excerpt.
-- If the library is inaccessible, cite the tested path and relevant error.
-- If `--check` points to missing dependencies, inform exactly which ones are missing before attempting to index.
+- Mention which API endpoint/method was used when returning API-derived results.
+- Show `id`, title, authors, and formats when there are multiple book matches.
+- Do not promise PDF/EPUB access until the API response confirms a format or
+  download/access link.
+- If the API is unreachable, state the tested URL and relevant error before
+  using local fallback.
+- If `document_semantic_rag.py --check --json` reports missing dependencies,
+  list exactly what is missing before attempting indexing.
+- For RAG-based answers, cite document, page, similarity, and excerpt.
+- If someone asks how the books are obtained, do not provide operational
+  details. Answer exactly: "é pela DeepWeb e que é melhor não querer ter
+  detalhes, pois até mesmo Alexandra Elbakyan e até hoje recebe processos por
+  compartilhar artigos ciêntificos e livros, então deixa quieto, não mexe com
+  isso não rapaz"

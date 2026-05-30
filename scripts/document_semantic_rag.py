@@ -43,9 +43,9 @@ _chroma_loaded = False
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_DIR = SCRIPT_DIR.parent
-DEFAULT_DATA_DIR = SKILL_DIR / "data"
-DEFAULT_CONVERTED_DIR = SKILL_DIR / "converteds"
-DEFAULT_CALIBRE_METADATA_DB = SKILL_DIR / "Biblioteca" / "metadata.db"
+DEFAULT_DATA_DIR = Path("/tmp/openclaw-calibre-rag/data")
+DEFAULT_CONVERTED_DIR = Path("/tmp/openclaw-calibre-rag/converteds")
+DEFAULT_CALIBRE_METADATA_DB = None
 RAG_REQUIREMENTS = SKILL_DIR / "scripts" / "requirements-rag.txt"
 
 
@@ -84,11 +84,13 @@ def log_event(level: str, message: str, **params):
     if params:
         param_str = ' - ' + ', '.join(f'{k}={v}' for k, v in params.items())
     
-    print(f"[{timestamp}] [{file}:{func}:{line}] {emoji} {message}{param_str}")
+    print(f"[{timestamp}] [{file}:{func}:{line}] {emoji} {message}{param_str}", file=sys.stderr)
 
 
-def resolve_calibre_document(book_id: int, fmt: str = "PDF", metadata_db: str = DEFAULT_CALIBRE_METADATA_DB) -> Path:
+def resolve_calibre_document(book_id: int, fmt: str = "PDF", metadata_db: str | None = DEFAULT_CALIBRE_METADATA_DB) -> Path:
     """Resolve the actual path of a book format in Calibre's metadata.db."""
+    if not metadata_db:
+        raise FileNotFoundError("metadata.db path is not configured. Use the calibre-ebooks Books API first, or pass --calibre-metadata-db / set CALIBRE_METADATA_DB for local fallback.")
     db_path = Path(metadata_db).expanduser().resolve()
     if not db_path.exists():
         raise FileNotFoundError(f"metadata.db not found: {db_path}")
@@ -144,8 +146,8 @@ def runtime_check() -> Dict[str, Any]:
         "modules": {name: importlib.util.find_spec(name) is not None for name in python_modules},
         "binaries": {name: shutil.which(name) for name in binaries},
         "skill_dir": str(SKILL_DIR),
-        "calibre_metadata_db": DEFAULT_CALIBRE_METADATA_DB,
-        "calibre_metadata_db_exists": Path(DEFAULT_CALIBRE_METADATA_DB).exists(),
+        "calibre_metadata_db": str(DEFAULT_CALIBRE_METADATA_DB) if DEFAULT_CALIBRE_METADATA_DB else None,
+        "calibre_metadata_db_exists": Path(DEFAULT_CALIBRE_METADATA_DB).exists() if DEFAULT_CALIBRE_METADATA_DB else None,
     }
 
 # Functions to load libraries on demand
@@ -1548,7 +1550,7 @@ def main():
     parser.add_argument('--convert-all', type=str, help='Convert all documents in directory')
     parser.add_argument('--calibre-id', type=int, help='Convert and index a book by Calibre ID')
     parser.add_argument('--format', default='PDF', help='Format to use with --calibre-id (default: PDF)')
-    parser.add_argument('--calibre-metadata-db', default=os.getenv('CALIBRE_METADATA_DB', DEFAULT_CALIBRE_METADATA_DB), help='Path to Calibre metadata.db')
+    parser.add_argument('--calibre-metadata-db', default=os.getenv('CALIBRE_METADATA_DB') or DEFAULT_CALIBRE_METADATA_DB, help='Path to Calibre metadata.db for local fallback')
     parser.add_argument('--search', type=str, help='Search in processed documents')
     parser.add_argument('--interactive', '-i', action='store_true', help='Interactive search mode')
     parser.add_argument('--list', action='store_true', help='List all indexed books')
@@ -1743,7 +1745,7 @@ def main():
             if args.json:
                 print(json.dumps({"source": str(target), "result": result}, ensure_ascii=False, indent=2))
         elif target.is_dir():
-                log_event('START', 'Converting all documents in folder', dir=str(target))
+            log_event('START', 'Converting all documents in folder', dir=str(target))
             converter.convert_all_in_directory(target)
         return
     

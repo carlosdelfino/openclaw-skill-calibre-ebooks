@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_DB = "/mnt/Backup_2/Biblioteca/metadata.db"
+DEFAULT_DB = None
 
 
 def log_event(level: str, message: str, **params):
@@ -54,11 +54,13 @@ def log_event(level: str, message: str, **params):
     if params:
         param_str = ' - ' + ', '.join(f'{k}={v}' for k, v in params.items())
     
-    print(f"[{timestamp}] [{file}:{func}:{line}] {emoji} {message}{param_str}")
+    print(f"[{timestamp}] [{file}:{func}:{line}] {emoji} {message}{param_str}", file=sys.stderr)
 
 
 def connect(db_path: str) -> sqlite3.Connection:
     log_event('START', 'Connecting to Calibre database', db_path=db_path)
+    if not db_path:
+        raise SystemExit("metadata.db path is not configured. Use the calibre-ebooks Books API first, or pass --db / set CALIBRE_METADATA_DB for local fallback.")
     db = Path(db_path)
     if not db.exists():
         log_event('ERROR', 'Database not found', db_path=str(db))
@@ -266,7 +268,7 @@ def print_json(data: Any) -> None:
 def main(argv: list[str]) -> int:
     log_event('START', 'Starting calibre_query')
     parser = argparse.ArgumentParser(description="Read-only queries for a Calibre metadata.db")
-    parser.add_argument("--db", default=os.environ.get("CALIBRE_METADATA_DB", DEFAULT_DB))
+    parser.add_argument("--db", default=os.environ.get("CALIBRE_METADATA_DB") or DEFAULT_DB)
     sub = parser.add_subparsers(dest="command", required=True)
 
     list_parser = sub.add_parser("list", help="List books")
