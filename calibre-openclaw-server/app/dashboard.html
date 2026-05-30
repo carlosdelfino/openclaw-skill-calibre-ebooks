@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calibre OpenClaw - Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            color: #667eea;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 1.1em;
+        }
+
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 15px;
+            padding: 10px 20px;
+            background: #f0f0f0;
+            border-radius: 30px;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ccc;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.connected {
+            background: #4CAF50;
+        }
+
+        .status-dot.disconnected {
+            background: #f44336;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 50px rgba(0, 0, 0, 0.15);
+        }
+
+        .card-title {
+            color: #667eea;
+            font-size: 1.3em;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .card-title::before {
+            content: '';
+            width: 4px;
+            height: 25px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 2px;
+        }
+
+        .stat-value {
+            font-size: 3em;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .stat-label {
+            color: #666;
+            font-size: 1.1em;
+        }
+
+        .stat-change {
+            font-size: 0.9em;
+            margin-top: 10px;
+            padding: 5px 15px;
+            border-radius: 15px;
+            display: inline-block;
+        }
+
+        .stat-change.positive {
+            background: #e8f5e9;
+            color: #4CAF50;
+        }
+
+        .stat-change.negative {
+            background: #ffebee;
+            color: #f44336;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin-top: 20px;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #e0e0e0;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-top: 15px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            border-radius: 10px;
+            transition: width 0.5s ease;
+        }
+
+        .queue-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            margin-bottom: 10px;
+        }
+
+        .queue-status {
+            padding: 5px 15px;
+            border-radius: 15px;
+            font-size: 0.9em;
+            font-weight: bold;
+        }
+
+        .queue-status.pending {
+            background: #fff3e0;
+            color: #ff9800;
+        }
+
+        .queue-status.processing {
+            background: #e3f2fd;
+            color: #2196f3;
+        }
+
+        .queue-status.completed {
+            background: #e8f5e9;
+            color: #4CAF50;
+        }
+
+        .queue-status.failed {
+            background: #ffebee;
+            color: #f44336;
+        }
+
+        .last-updated {
+            text-align: center;
+            color: #666;
+            margin-top: 20px;
+            font-size: 0.9em;
+        }
+
+        .full-width {
+            grid-column: 1 / -1;
+        }
+
+        .activity-list {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .activity-item {
+            padding: 10px;
+            border-left: 3px solid #667eea;
+            background: #f8f9fa;
+            margin-bottom: 10px;
+            border-radius: 0 10px 10px 0;
+        }
+
+        .activity-time {
+            font-size: 0.8em;
+            color: #999;
+        }
+
+        .book-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .book-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            transition: background 0.3s ease;
+        }
+
+        .book-item:hover {
+            background: #e9ecef;
+        }
+
+        .book-info {
+            flex: 1;
+        }
+
+        .book-title {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .book-author {
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        .book-status {
+            padding: 5px 12px;
+            border-radius: 15px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+
+        .book-status.has-embeddings {
+            background: #e8f5e9;
+            color: #4CAF50;
+        }
+
+        .book-status.no-embeddings {
+            background: #fff3e0;
+            color: #ff9800;
+        }
+
+        .problem-tag {
+            display: inline-block;
+            padding: 3px 8px;
+            background: #ffebee;
+            color: #f44336;
+            border-radius: 12px;
+            font-size: 0.75em;
+            margin-right: 5px;
+            margin-bottom: 5px;
+        }
+
+        .problem-tag.file-not-found {
+            background: #ffebee;
+            color: #f44336;
+        }
+
+        .problem-tag.no-embeddings {
+            background: #fff3e0;
+            color: #ff9800;
+        }
+
+        .problem-tag.no-file-path {
+            background: #e3f2fd;
+            color: #2196f3;
+        }
+
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .metric-item {
+            text-align: center;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+
+        .metric-value {
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .metric-label {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        .nav-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 10px;
+        }
+
+        .nav-tab {
+            padding: 10px 20px;
+            background: #f0f0f0;
+            border: none;
+            border-radius: 10px 10px 0 0;
+            cursor: pointer;
+            font-weight: bold;
+            color: #666;
+            transition: all 0.3s ease;
+        }
+
+        .nav-tab.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .nav-tab:hover:not(.active) {
+            background: #e0e0e0;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .api-link {
+            display: inline-block;
+            padding: 8px 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 20px;
+            margin: 5px;
+            font-size: 0.9em;
+            transition: transform 0.3s ease;
+        }
+
+        .api-link:hover {
+            transform: scale(1.05);
+        }
+
+        .links-section {
+            margin-top: 20px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+        }
+
+        .links-section h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 1.8em;
+            }
+            
+            .stat-value {
+                font-size: 2em;
+            }
+            
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📚 Calibre OpenClaw Dashboard</h1>
+            <p>Monitoramento em tempo real do banco de dados e sistema de busca semântica</p>
+            <div class="status-indicator">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="statusText">Conectando...</span>
+            </div>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <div class="card-title">Total de Livros</div>
+                <div class="stat-value" id="totalBooks">0</div>
+                <div class="stat-label">Livros no banco de dados</div>
+                <div class="stat-change positive" id="booksWithEmbeddings">0 com embeddings</div>
+                <div class="metric-grid">
+                    <div class="metric-item">
+                        <div class="metric-value" id="booksWithoutEmbeddings">0</div>
+                        <div class="metric-label">Sem Embeddings</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-value" id="embeddingCoverage">0%</div>
+                        <div class="metric-label">Cobertura</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Total de Chunks</div>
+                <div class="stat-value" id="totalChunks">0</div>
+                <div class="stat-label">Segmentos de texto processados</div>
+                <div class="stat-change positive" id="chunksWithEmbeddings">0 com embeddings</div>
+                <div class="metric-grid">
+                    <div class="metric-item">
+                        <div class="metric-value" id="chunksWithoutEmbeddings">0</div>
+                        <div class="metric-label">Sem Embeddings</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-value" id="avgChunksPerBook">0</div>
+                        <div class="metric-label">Média por Livro</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Embeddings Armazenados</div>
+                <div class="stat-value" id="totalEmbeddings">0</div>
+                <div class="stat-label">Vetores de embeddings</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="embeddingProgress" style="width: 0%"></div>
+                </div>
+                <div class="stat-label" style="margin-top: 10px" id="embeddingRate">0% de cobertura</div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Fila de Processamento</div>
+                <div class="queue-item">
+                    <span>Pendente</span>
+                    <span class="queue-status pending" id="pendingQueue">0</span>
+                </div>
+                <div class="queue-item">
+                    <span>Processando</span>
+                    <span class="queue-status processing" id="processingQueue">0</span>
+                </div>
+                <div class="queue-item">
+                    <span>Concluído</span>
+                    <span class="queue-status completed" id="completedQueue">0</span>
+                </div>
+                <div class="queue-item">
+                    <span>Falhou</span>
+                    <span class="queue-status failed" id="failedQueue">0</span>
+                </div>
+            </div>
+
+            <div class="card full-width">
+                <div class="card-title">Distribuição de Embeddings</div>
+                <div class="chart-container">
+                    <canvas id="embeddingChart"></canvas>
+                </div>
+            </div>
+
+            <div class="card full-width">
+                <div class="card-title">Status do Sistema</div>
+                <div class="chart-container">
+                    <canvas id="systemChart"></canvas>
+                </div>
+            </div>
+
+            <div class="card full-width">
+                <div class="card-title">Armazenamento</div>
+                <div class="metric-grid">
+                    <div class="metric-item">
+                        <div class="metric-value" id="librarySize">0 GB</div>
+                        <div class="metric-label">Biblioteca Calibre</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-value" id="databaseSize">0 MB</div>
+                        <div class="metric-label">Banco de Dados</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-value" id="totalSize">0 GB</div>
+                        <div class="metric-label">Total</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card full-width">
+                <div class="card-title">Livros Recentes</div>
+                <div class="book-list" id="recentBooks">
+                    <div class="book-item">
+                        <div class="book-info">
+                            <div class="book-title">Carregando...</div>
+                            <div class="book-author">Aguarde</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card full-width">
+                <div class="card-title">Livros com Problemas</div>
+                <div class="book-list" id="problemBooks">
+                    <div class="book-item">
+                        <div class="book-info">
+                            <div class="book-title">Carregando...</div>
+                            <div class="book-author">Aguarde</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card full-width">
+                <div class="card-title">Links Rápidos</div>
+                <div class="links-section">
+                    <h3>API Documentation</h3>
+                    <a href="/docs" class="api-link">📖 Swagger UI</a>
+                    <a href="/redoc" class="api-link">📚 ReDoc</a>
+                    <a href="/openapi.json" class="api-link">🔧 OpenAPI JSON</a>
+                    <h3>Endpoints</h3>
+                    <a href="/api/books" class="api-link">📕 Listar Livros</a>
+                    <a href="/api/books/sync" class="api-link">🔄 Sincronizar</a>
+                    <a href="/api/books/problems" class="api-link">⚠️ Livros com Problemas</a>
+                    <a href="/api/stats/overview" class="api-link">📊 Estatísticas</a>
+                    <a href="/health" class="api-link">❤️ Health Check</a>
+                </div>
+            </div>
+        </div>
+
+        <div class="last-updated">
+            Última atualização: <span id="lastUpdated">--</span>
+        </div>
+    </div>
+
+    <script>
+        let ws;
+        let embeddingChart;
+        let systemChart;
+
+        function initCharts() {
+            // Embedding Distribution Chart
+            const embeddingCtx = document.getElementById('embeddingChart').getContext('2d');
+            embeddingChart = new Chart(embeddingCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Com Embeddings', 'Sem Embeddings'],
+                    datasets: [{
+                        data: [0, 0],
+                        backgroundColor: [
+                            'rgba(102, 126, 234, 0.8)',
+                            'rgba(118, 75, 162, 0.8)'
+                        ],
+                        borderColor: [
+                            'rgba(102, 126, 234, 1)',
+                            'rgba(118, 75, 162, 1)'
+                        ],
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+
+            // System Status Chart
+            const systemCtx = document.getElementById('systemChart').getContext('2d');
+            systemChart = new Chart(systemCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['Pendente', 'Processando', 'Concluído', 'Falhou'],
+                    datasets: [{
+                        label: 'Itens na Fila',
+                        data: [0, 0, 0, 0],
+                        backgroundColor: [
+                            'rgba(255, 152, 0, 0.8)',
+                            'rgba(33, 150, 243, 0.8)',
+                            'rgba(76, 175, 80, 0.8)',
+                            'rgba(244, 67, 54, 0.8)'
+                        ],
+                        borderColor: [
+                            'rgba(255, 152, 0, 1)',
+                            'rgba(33, 150, 243, 1)',
+                            'rgba(76, 175, 80, 1)',
+                            'rgba(244, 67, 54, 1)'
+                        ],
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateDashboard(data) {
+            const db = data.database;
+            const queries = data.queries;
+
+            // Update books stats
+            document.getElementById('totalBooks').textContent = db.books.total.toLocaleString();
+            document.getElementById('booksWithEmbeddings').textContent = 
+                `${db.books.with_embeddings.toLocaleString()} com embeddings`;
+            document.getElementById('booksWithoutEmbeddings').textContent = 
+                db.books.without_embeddings.toLocaleString();
+            
+            const coverage = db.books.total > 0 
+                ? ((db.books.with_embeddings / db.books.total) * 100).toFixed(1) 
+                : 0;
+            document.getElementById('embeddingCoverage').textContent = `${coverage}%`;
+
+            // Update chunks stats
+            document.getElementById('totalChunks').textContent = db.chunks.total.toLocaleString();
+            document.getElementById('chunksWithEmbeddings').textContent = 
+                `${db.chunks.with_embeddings.toLocaleString()} com embeddings`;
+            document.getElementById('chunksWithoutEmbeddings').textContent = 
+                db.chunks.without_embeddings.toLocaleString();
+            
+            const avgChunks = db.books.total > 0 
+                ? (db.chunks.total / db.books.total).toFixed(1) 
+                : 0;
+            document.getElementById('avgChunksPerBook').textContent = avgChunks;
+
+            // Update embeddings stats
+            document.getElementById('totalEmbeddings').textContent = 
+                db.embeddings.total_stored.toLocaleString();
+            document.getElementById('embeddingProgress').style.width = 
+                `${db.embeddings.utilization_rate}%`;
+            document.getElementById('embeddingRate').textContent = 
+                `${db.embeddings.utilization_rate}% de cobertura`;
+
+            // Update queue stats
+            document.getElementById('pendingQueue').textContent = 
+                db.processing_queue.pending;
+            document.getElementById('processingQueue').textContent = 
+                db.processing_queue.processing;
+            document.getElementById('completedQueue').textContent = 
+                db.processing_queue.completed;
+            document.getElementById('failedQueue').textContent = 
+                db.processing_queue.failed;
+
+            // Update storage
+            document.getElementById('librarySize').textContent = 
+                `${db.storage.library_size_gb.toLocaleString()} GB`;
+            document.getElementById('databaseSize').textContent = 
+                `${db.storage.database_size_mb.toLocaleString()} MB`;
+            document.getElementById('totalSize').textContent = 
+                `${db.storage.total_size_gb.toLocaleString()} GB`;
+
+            // Update charts
+            embeddingChart.data.datasets[0].data = [
+                db.chunks.with_embeddings,
+                db.chunks.without_embeddings
+            ];
+            embeddingChart.update();
+
+            systemChart.data.datasets[0].data = [
+                db.processing_queue.pending,
+                db.processing_queue.processing,
+                db.processing_queue.completed,
+                db.processing_queue.failed
+            ];
+            systemChart.update();
+
+            // Update timestamp
+            document.getElementById('lastUpdated').textContent = 
+                new Date(data.timestamp).toLocaleString('pt-BR');
+        }
+
+        async function loadRecentBooks() {
+            try {
+                const response = await fetch('/api/books?limit=10');
+                const data = await response.json();
+                
+                const booksList = document.getElementById('recentBooks');
+                booksList.innerHTML = '';
+                
+                if (data.books && data.books.length > 0) {
+                    data.books.forEach(book => {
+                        const bookItem = document.createElement('div');
+                        bookItem.className = 'book-item';
+                        
+                        const hasEmbeddings = book.has_embeddings || false;
+                        const statusClass = hasEmbeddings ? 'has-embeddings' : 'no-embeddings';
+                        const statusText = hasEmbeddings ? 'Com Embeddings' : 'Sem Embeddings';
+                        
+                        bookItem.innerHTML = `
+                            <div class="book-info">
+                                <div class="book-title">${book.title || 'Sem título'}</div>
+                                <div class="book-author">${book.author || 'Autor desconhecido'}</div>
+                            </div>
+                            <div class="book-status ${statusClass}">${statusText}</div>
+                        `;
+                        
+                        booksList.appendChild(bookItem);
+                    });
+                } else {
+                    booksList.innerHTML = '<div class="book-item"><div class="book-info"><div class="book-title">Nenhum livro encontrado</div></div></div>';
+                }
+            } catch (error) {
+                console.error('Error loading recent books:', error);
+                document.getElementById('recentBooks').innerHTML = '<div class="book-item"><div class="book-info"><div class="book-title">Erro ao carregar livros</div></div></div>';
+            }
+        }
+
+        async function loadProblemBooks() {
+            try {
+                const response = await fetch('/api/books/problems');
+                const data = await response.json();
+                
+                const problemBooksList = document.getElementById('problemBooks');
+                problemBooksList.innerHTML = '';
+                
+                if (data.books && data.books.length > 0) {
+                    data.books.forEach(book => {
+                        const bookItem = document.createElement('div');
+                        bookItem.className = 'book-item';
+                        
+                        const problemTags = book.problems.map(problem => {
+                            let tagClass = '';
+                            if (problem === 'File not found') tagClass = 'file-not-found';
+                            else if (problem === 'No embeddings') tagClass = 'no-embeddings';
+                            else if (problem === 'No file path') tagClass = 'no-file-path';
+                            return `<span class="problem-tag ${tagClass}">${problem}</span>`;
+                        }).join('');
+                        
+                        bookItem.innerHTML = `
+                            <div class="book-info">
+                                <div class="book-title">${book.title || 'Sem título'}</div>
+                                <div class="book-author">${book.author || 'Autor desconhecido'}</div>
+                                <div style="margin-top: 5px;">${problemTags}</div>
+                            </div>
+                        `;
+                        
+                        problemBooksList.appendChild(bookItem);
+                    });
+                } else {
+                    problemBooksList.innerHTML = '<div class="book-item"><div class="book-info"><div class="book-title">Nenhum livro com problemas encontrado</div></div></div>';
+                }
+            } catch (error) {
+                console.error('Error loading problem books:', error);
+                document.getElementById('problemBooks').innerHTML = '<div class="book-item"><div class="book-info"><div class="book-title">Erro ao carregar livros com problemas</div></div></div>';
+            }
+        }
+
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/stats`;
+            
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                console.log('WebSocket connected');
+                document.getElementById('statusDot').className = 'status-dot connected';
+                document.getElementById('statusText').textContent = 'Conectado';
+            };
+
+            ws.onmessage = (event) => {
+                const message = JSON.parse(event.data);
+                console.log('Received:', message);
+                
+                if (message.type === 'initial' || message.type === 'update') {
+                    updateDashboard(message.data);
+                }
+            };
+
+            ws.onclose = () => {
+                console.log('WebSocket disconnected');
+                document.getElementById('statusDot').className = 'status-dot disconnected';
+                document.getElementById('statusText').textContent = 'Desconectado - Reconectando...';
+                
+                // Attempt to reconnect after 5 seconds
+                setTimeout(connectWebSocket, 5000);
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                document.getElementById('statusDot').className = 'status-dot disconnected';
+                document.getElementById('statusText').textContent = 'Erro de conexão';
+            };
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            initCharts();
+            connectWebSocket();
+            loadRecentBooks();
+            loadProblemBooks();
+        });
+    </script>
+</body>
+</html>
