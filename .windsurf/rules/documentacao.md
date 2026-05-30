@@ -19,7 +19,7 @@ Estas regras aplicam-se a TODOS os arquivos markdown (`.md`) criados no projeto,
 
 ### 1. BADGES (Primeiras linhas do arquivo)
 
-Neste repositório, use `RapportTecnologia` como organização e `GitAnalytics` como nome do repositório. Para templates genéricos, substitua `<org>` e `<repository>` conforme necessário.
+Neste repositório, use as informações do repositório obtidas pelo git. Para templates genéricos, substitua `<org>` e `<repository>` conforme necessário. Ajuste os badges adicionado e removendo conforme a natureza do projeto.
 
 ```markdown
 ![visitors](https://visitor-badge.laobi.icu/badge?page_id=<org>.<repository>)

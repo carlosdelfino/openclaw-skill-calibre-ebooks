@@ -2,9 +2,8 @@
 [![License: CC BY-SA 4.0](https://img.shields.io/badge/License-CC_BY--SA_4.0-blue.svg)](https://creativecommons.org/licenses/by-sa/4.0/)
 ![Language: Portuguese](https://img.shields.io/badge/Language-Portuguese-brightgreen.svg)
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
-![Jupyter](https://img.shields.io/badge/Jupyter-Notebook-orange)
-![Machine Learning](https://img.shields.io/badge/Machine%20Learning-Prática-green)
-![Status](https://img.shields.io/badge/Status-Educa%C3%A7%C3%A3o-brightgreen)
+![Node.js](https://img.shields.io/badge/Node.js-20%2B-green)
+![Status](https://img.shields.io/badge/Status-Desenvolvimento-brightgreen)
 ![Repository Size](https://img.shields.io/github/repo-size/carlosdelfino/openclaw-skill-calibre-ebooks)
 ![Last Commit](https://img.shields.io/github/last-commit/carlosdelfino/openclaw-skill-calibre-ebooks)
 
@@ -83,10 +82,10 @@ Contribuições são bem-vindas! Para colaborar com a melhoria deste projeto:
 ---
 **Resumo:** OpenClaw skill para integração com API de livros Calibre local, incluindo cliente Node.js e scripts Python auxiliares.
 **Data de Criação:** 2025-05-30
-**Autor:** Rapport Generativa
+**Autor:** Rapport GenerAtiva
 **Versão:** 0.0.6
 **Última Atualização:** 2025-05-30
-**Atualizado por:** Rapport Generativa
+**Atualizado por:** Carlos Delfino
 **Histórico de Alterações:**
-- 2025-05-30 - Criado por Rapport Generativa - Versão 0.0.6
-- 2025-05-30 - Atualizado por Rapport Generativa - Adicionado seções de clone e colaboração - Versão 0.0.6
+- 2025-05-30 - Atualizado por Carlos Delfino - Aplicação das regras de documentação - Versão 0.0.6
+- 2025-05-30 - Criado por Rapport GenerAtiva - Versão 0.0.6

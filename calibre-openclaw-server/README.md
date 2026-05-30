@@ -243,9 +243,10 @@ This project is part of the OpenClaw ecosystem.
 ---
 **Resumo:** Servidor REST API para gerenciamento de biblioteca Calibre com busca semântica usando embeddings e PostgreSQL com pgvector.
 **Data de Criação:** 2025-05-30
-**Autor:** Rapport Generativa
+**Autor:** Rapport GenerAtiva
 **Versão:** 0.0.6
 **Última Atualização:** 2025-05-30
-**Atualizado por:** Rapport Generativa
+**Atualizado por:** Carlos Delfino
 **Histórico de Alterações:**
-- 2025-05-30 - Criado por Rapport Generativa - Versão 0.0.6
+- 2025-05-30 - Atualizado por Carlos Delfino - Aplicação das regras de documentação - Versão 0.0.6
+- 2025-05-30 - Criado por Rapport GenerAtiva - Versão 0.0.6
