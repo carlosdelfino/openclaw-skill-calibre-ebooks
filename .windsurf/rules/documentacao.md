@@ -18,7 +18,7 @@ Estas regras aplicam-se a TODOS os arquivos markdown (`.md`) criados no projeto,
 
 ### 1. BADGES (Primeiras linhas do arquivo)
 
-Copiar EXATAMENTE o bloco abaixo, substituindo `<org>` e `<repository>`:
+Neste repositório, use as informações do repositório obtidas pelo git. Para templates genéricos, substitua `<org>` e `<repository>` conforme necessário. Ajuste os badges adicionado e removendo conforme a natureza do projeto.
 
 ```markdown
 ![visitors](https://visitor-badge.laobi.icu/badge?page_id=<org>.<repository>)
@@ -37,7 +37,7 @@ Copiar EXATAMENTE o bloco abaixo, substituindo `<org>` e `<repository>`:
 ```markdown
 <!-- Animated Header -->
 <p align="center">
-  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:0f172a,50:1a56db,100:10b981&height=220&section=header&text=RISC-V%20Resilience&fontSize=42&fontColor=ffffff&animation=fadeIn&fontAlignY=35&desc=Pesquisa%20em%20Resiliência%20de%20Processadores%20RISC-V&descSize=18&descAlignY=55&descColor=94a3b8" width="100%" alt="RISC-V Resilience Header"/>
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:0f172a,50:1a56db,100:10b981&height=220&section=header&text=GitAnalytics&fontSize=42&fontColor=ffffff&animation=fadeIn&fontAlignY=35&desc=Plataforma%20de%20An%C3%A1lise%20Profunda%20de%20Reposit%C3%B3rios%20GitHub&descSize=18&descAlignY=55&descColor=94a3b8" width="100%" alt="Header"/>
 </p>
 ```
 
@@ -50,7 +50,13 @@ Após o header, incluir o conteúdo específico do arquivo com:
 - Código formatado
 - Links e referências
 
-### 4. FOOTER ANIMADO (Antes do resumo final)
+### 4. ARQUIVOS A SEREM IGNORADOS
+
+Ignore os arquivos abaixo listados, não intervindo em sua formatação e nem em seu conteúdo.
+
+* SKILL.md
+
+### 5. FOOTER ANIMADO (Antes do resumo final)
 
 ```markdown
 <p align="center">
@@ -58,7 +64,7 @@ Após o header, incluir o conteúdo específico do arquivo com:
 </p>
 ```
 
-### 5. RESUMO FINAL E HISTÓRICO (Obrigatório)
+### 6. RESUMO FINAL E HISTÓRICO (Obrigatório)
 
 O Autor Inicial e quem atualizou inicialmente é "Rapport GenerAtiva".
 
@@ -75,7 +81,7 @@ O Autor Inicial e quem atualizou inicialmente é "Rapport GenerAtiva".
 - [AAAA-MM-DD] - Atualizado por [Autor] - [Descrição da alteração] - Versão [Versão]
 ```
 
-### 6. HISTÓRICO AUTOMÁTICO
+### 7. HISTÓRICO AUTOMÁTICO
 
 O projeto utiliza uma ferramenta automática para gerenciar o histórico de alterações:
 
@@ -137,7 +143,7 @@ Ao criar ou modificar arquivos markdown, verifique:
 
 <!-- Animated Header -->
 <p align="center">
-  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:0f172a,50:1a56db,100:10b981&height=220&section=header&text=RISC-V%20Resilience&fontSize=42&fontColor=ffffff&animation=fadeIn&fontAlignY=35&desc=Pesquisa%20em%20Resiliência%20de%20Processadores%20RISC-V&descSize=18&descAlignY=55&descColor=94a3b8" width="100%" alt="RISC-V Resilience Header"/>
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:0f172a,50:1a56db,100:10b981&height=220&section=header&text=GitAnalytics&fontSize=42&fontColor=ffffff&animation=fadeIn&fontAlignY=35&desc=Plataforma%20de%20An%C3%A1lise%20Profunda%20de%20Reposit%C3%B3rios%20GitHub&descSize=18&descAlignY=55&descColor=94a3b8" width="100%" alt="Header"/>
 </p>
 
 ## Título do Documento
@@ -154,21 +160,9 @@ Conteúdo específico do arquivo aqui...
 **Autor:** [Nome do autor, se aplicável]
 **Versão:** [Versão do documento, se aplicável]
 **Última Atualização:** [AAAA-MM-DD]
-**Atualizado por:** [Nome de quem atualizou]
+**Atualizado por:** Carlos Delfino
 **Histórico de Alterações:**
+- 2026-05-08 - Atualizado por Carlos Delfino - Removendo arquivos do Agentic....
 - [AAAA-MM-DD] - Criado por [Autor] - Versão [Versão]
 - [AAAA-MM-DD] - Atualizado por [Autor] - [Descrição da alteração] - Versão [Versão]
 ```
-
----
-
-**Resumo:** Regras padronizadas e otimizadas para formatação de arquivos markdown no projeto RISC-V Resilience, eliminando ambiguidades e garantindo consistência.
-**Data de Criação:** 2025-10-15
-**Autor:** Rapport Generativa
-**Versão:** 2.0
-**Última Atualização:** 2025-04-02
-**Atualizado por:** Rapport Generativa
-**Histórico de Alterações:**
-
-- 2025-10-15 - Criado por Sistema de Documentação - Versão 2.0
-- 2025-04-02 - Atualizado por Sistema de Documentação - Adicionado histórico automático e integração com git - Versão 2.1
