@@ -242,5 +242,6 @@ echo "All checks passed! Starting server..."
 echo "==========================================${NC}"
 echo ""
 
-# Start the server using virtual environment
-$VENV_PYTHON -m app.main
+# Start the server using virtual environment. Use exec so SIGINT/SIGTERM reach
+# Uvicorn directly and its lifespan shutdown handlers can complete.
+exec "$VENV_PYTHON" -m app.main

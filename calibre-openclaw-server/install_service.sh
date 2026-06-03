@@ -8,6 +8,9 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVICE_NAME="calibre-openclaw-server"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+NIGHTLY_SERVICE_NAME="${SERVICE_NAME}-nightly-embeddings"
+NIGHTLY_SERVICE_FILE="/etc/systemd/system/${NIGHTLY_SERVICE_NAME}.service"
+NIGHTLY_TIMER_FILE="/etc/systemd/system/${NIGHTLY_SERVICE_NAME}.timer"
 
 # Colors for output
 RED='\033[0;31m'
@@ -290,6 +293,7 @@ create_service_file() {
     
     CURRENT_USER=$(whoami)
     CURRENT_HOME=$(getent passwd "$CURRENT_USER" | cut -d: -f6)
+    SERVICE_ENV_DIR="$(dirname "$ENV_FILE")"
     
     sudo tee "$SERVICE_FILE" > /dev/null <<EOF
 [Unit]
@@ -302,6 +306,7 @@ User=${CURRENT_USER}
 Group=${CURRENT_USER}
 WorkingDirectory=${SCRIPT_DIR}
 Environment="PATH=${SCRIPT_DIR}/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="ENV_DIR=${SERVICE_ENV_DIR}"
 ExecStart=${SCRIPT_DIR}/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 6180
 ExecStop=/bin/kill -SIGTERM \$MAINPID
 Restart=always
@@ -314,6 +319,54 @@ WantedBy=multi-user.target
 EOF
     
     print_success "Service file created at $SERVICE_FILE"
+}
+
+# Create systemd nightly embeddings service and timer files
+create_nightly_service_files() {
+    print_info "Creating nightly embeddings systemd service and timer files..."
+
+    CURRENT_USER=$(whoami)
+    CURRENT_HOME=$(getent passwd "$CURRENT_USER" | cut -d: -f6)
+    SERVICE_ENV_DIR="$(dirname "$ENV_FILE")"
+
+    sudo tee "$NIGHTLY_SERVICE_FILE" > /dev/null <<EOF
+[Unit]
+Description=Calibre OpenClaw Nightly Embedding Prefetch
+After=network.target postgresql.service ollama.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=${CURRENT_USER}
+Group=${CURRENT_USER}
+WorkingDirectory=${SCRIPT_DIR}
+Environment="PATH=${SCRIPT_DIR}/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="HOME=${CURRENT_HOME}"
+Environment="ENV_DIR=${SERVICE_ENV_DIR}"
+ExecStart=${SCRIPT_DIR}/.venv/bin/python -m app.nightly_embeddings
+StandardOutput=append:${SCRIPT_DIR}/logs/nightly_embeddings.log
+StandardError=append:${SCRIPT_DIR}/logs/nightly_embeddings_error.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    sudo tee "$NIGHTLY_TIMER_FILE" > /dev/null <<EOF
+[Unit]
+Description=Run Calibre OpenClaw embedding prefetch between 01:00 and 05:00
+
+[Timer]
+OnCalendar=*-*-* 01:00:00
+RandomizedDelaySec=4h
+Persistent=true
+Unit=${NIGHTLY_SERVICE_NAME}.service
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    print_success "Nightly service file created at $NIGHTLY_SERVICE_FILE"
+    print_success "Nightly timer file created at $NIGHTLY_TIMER_FILE"
 }
 
 # Install the service
@@ -330,6 +383,9 @@ install_service() {
     
     # Create service file
     create_service_file
+
+    # Create nightly embeddings service and timer files
+    create_nightly_service_files
     
     # Reload systemd
     print_info "Reloading systemd daemon..."
@@ -340,6 +396,10 @@ install_service() {
     print_info "Enabling service to start on boot..."
     sudo systemctl enable "$SERVICE_NAME"
     print_success "Service enabled"
+
+    print_info "Enabling nightly embeddings timer..."
+    sudo systemctl enable --now "$NIGHTLY_SERVICE_NAME.timer"
+    print_success "Nightly embeddings timer enabled"
     
     print_success "Service installed successfully!"
     print_info "You can now manage the service using:"
@@ -347,6 +407,9 @@ install_service() {
     print_info "  sudo systemctl stop ${SERVICE_NAME}"
     print_info "  sudo systemctl restart ${SERVICE_NAME}"
     print_info "  sudo systemctl status ${SERVICE_NAME}"
+    print_info "  sudo systemctl start ${NIGHTLY_SERVICE_NAME}.service"
+    print_info "  sudo systemctl status ${NIGHTLY_SERVICE_NAME}.timer"
+    print_info "  systemctl list-timers ${NIGHTLY_SERVICE_NAME}.timer"
     print_info "  systemctl --user start ${SERVICE_NAME}"
     print_info "  systemctl --user stop ${SERVICE_NAME}"
     print_info "  systemctl --user restart ${SERVICE_NAME}"
@@ -355,7 +418,7 @@ install_service() {
 
 # Uninstall the service
 uninstall_service() {
-    print_info "Uninstalling ${SERVICE_NAME} service..."
+    print_info "Uninstalling ${SERVICE_NAME} service and ${NIGHTLY_SERVICE_NAME} timer..."
     
     # Stop service if running
     if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null || systemctl --user is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
@@ -363,17 +426,45 @@ uninstall_service() {
         sudo systemctl stop "$SERVICE_NAME" 2>/dev/null || systemctl --user stop "$SERVICE_NAME" 2>/dev/null
         print_success "Service stopped"
     fi
+
+    if systemctl is-active --quiet "$NIGHTLY_SERVICE_NAME.timer" 2>/dev/null; then
+        print_info "Stopping nightly embeddings timer..."
+        sudo systemctl stop "$NIGHTLY_SERVICE_NAME.timer" 2>/dev/null
+        print_success "Nightly embeddings timer stopped"
+    fi
+
+    if systemctl is-active --quiet "$NIGHTLY_SERVICE_NAME.service" 2>/dev/null; then
+        print_info "Stopping nightly embeddings service..."
+        sudo systemctl stop "$NIGHTLY_SERVICE_NAME.service" 2>/dev/null
+        print_success "Nightly embeddings service stopped"
+    fi
     
     # Disable service
     print_info "Disabling service..."
     sudo systemctl disable "$SERVICE_NAME" 2>/dev/null || systemctl --user disable "$SERVICE_NAME" 2>/dev/null
     print_success "Service disabled"
+
+    print_info "Disabling nightly embeddings timer..."
+    sudo systemctl disable --now "$NIGHTLY_SERVICE_NAME.timer" 2>/dev/null || true
+    print_success "Nightly embeddings timer disabled"
     
     # Remove service file
     if [[ -f "$SERVICE_FILE" ]]; then
         print_info "Removing service file..."
         sudo rm -f "$SERVICE_FILE"
         print_success "Service file removed"
+    fi
+
+    if [[ -f "$NIGHTLY_SERVICE_FILE" ]]; then
+        print_info "Removing nightly embeddings service file..."
+        sudo rm -f "$NIGHTLY_SERVICE_FILE"
+        print_success "Nightly embeddings service file removed"
+    fi
+
+    if [[ -f "$NIGHTLY_TIMER_FILE" ]]; then
+        print_info "Removing nightly embeddings timer file..."
+        sudo rm -f "$NIGHTLY_TIMER_FILE"
+        print_success "Nightly embeddings timer file removed"
     fi
     
     # Reload systemd
@@ -432,6 +523,12 @@ show_status() {
     
     if [[ -f "$SERVICE_FILE" ]]; then
         sudo systemctl status "$SERVICE_NAME"
+        echo ""
+        print_info "${NIGHTLY_SERVICE_NAME} timer status:"
+        sudo systemctl status "$NIGHTLY_SERVICE_NAME.timer" 2>/dev/null || true
+        echo ""
+        print_info "${NIGHTLY_SERVICE_NAME} next runs:"
+        systemctl list-timers "$NIGHTLY_SERVICE_NAME.timer" 2>/dev/null || true
     else
         systemctl --user status "$SERVICE_NAME"
     fi
@@ -443,6 +540,7 @@ enable_service() {
     
     if [[ -f "$SERVICE_FILE" ]]; then
         sudo systemctl enable "$SERVICE_NAME"
+        sudo systemctl enable --now "$NIGHTLY_SERVICE_NAME.timer"
     else
         systemctl --user enable "$SERVICE_NAME"
     fi
@@ -456,6 +554,7 @@ disable_service() {
     
     if [[ -f "$SERVICE_FILE" ]]; then
         sudo systemctl disable "$SERVICE_NAME"
+        sudo systemctl disable --now "$NIGHTLY_SERVICE_NAME.timer"
     else
         systemctl --user disable "$SERVICE_NAME"
     fi
@@ -472,7 +571,7 @@ Usage: $0 <command>
 
 Commands:
   install     Install the service as a systemd service (requires sudo)
-  uninstall   Remove the systemd service (requires sudo)
+  uninstall   Remove the systemd service and nightly timer (requires sudo)
   start       Start the service
   stop        Stop the service
   restart     Restart the service
@@ -482,7 +581,7 @@ Commands:
   help        Show this help message
 
 Examples:
-  $0 install     # Install the service
+  $0 install     # Install the server service and nightly embeddings timer
   $0 start       # Start the service
   $0 status      # Check service status
   $0 stop        # Stop the service
@@ -493,6 +592,9 @@ After installation, you can also use systemctl directly:
   sudo systemctl stop ${SERVICE_NAME}
   sudo systemctl restart ${SERVICE_NAME}
   sudo systemctl status ${SERVICE_NAME}
+  sudo systemctl start ${NIGHTLY_SERVICE_NAME}.service
+  sudo systemctl status ${NIGHTLY_SERVICE_NAME}.timer
+  systemctl list-timers ${NIGHTLY_SERVICE_NAME}.timer
   
 Or with user systemd (if installed as user service):
   systemctl --user start ${SERVICE_NAME}

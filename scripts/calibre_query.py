@@ -188,6 +188,17 @@ def list_books(conn: sqlite3.Connection, limit: int, offset: int) -> list[dict[s
     return books
 
 
+def random_book(conn: sqlite3.Connection, include_comments: bool = True) -> dict[str, Any]:
+    log_event('START', 'Selecting random book')
+    row = conn.execute(book_select(order_limit="ORDER BY RANDOM() LIMIT 1")).fetchone()
+    if row is None:
+        log_event('ERROR', 'No books found for random selection')
+        raise SystemExit("no books found in Calibre database")
+    book = row_to_book(row, include_comments=include_comments)
+    log_event('SUCCESS', 'Random book selected', book_id=book["id"], title=book["title"])
+    return book
+
+
 def search_books(conn: sqlite3.Connection, query: str, limit: int) -> list[dict[str, Any]]:
     log_event('START', 'Searching books', query=query, limit=limit)
     pattern = f"%{query}%"
@@ -275,6 +286,9 @@ def main(argv: list[str]) -> int:
     list_parser.add_argument("--limit", type=int, default=20)
     list_parser.add_argument("--offset", type=int, default=0)
 
+    random_parser = sub.add_parser("random", help="Show one random book")
+    random_parser.add_argument("--no-comments", action="store_true", help="Do not include comments/synopsis")
+
     search_parser = sub.add_parser("search", help="Search by title, author, or tag")
     search_parser.add_argument("query")
     search_parser.add_argument("--limit", type=int, default=20)
@@ -292,6 +306,8 @@ def main(argv: list[str]) -> int:
 
     if args.command == "list":
         print_json(list_books(conn, args.limit, args.offset))
+    elif args.command == "random":
+        print_json(random_book(conn, include_comments=not args.no_comments))
     elif args.command == "search":
         print_json(search_books(conn, args.query, args.limit))
     elif args.command == "metadata":

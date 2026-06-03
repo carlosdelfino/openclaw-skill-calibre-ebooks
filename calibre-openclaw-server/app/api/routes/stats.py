@@ -194,6 +194,125 @@ async def get_query_stats() -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/library")
+async def get_library_summary() -> Dict[str, Any]:
+    """Get reader-facing Calibre catalog and RAG summary statistics."""
+    try:
+        with postgres_db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT COUNT(*) FROM books")
+            total_books = cursor.fetchone()[0]
+
+            cursor.execute("""
+                SELECT COUNT(DISTINCT book_id)
+                FROM book_chunks
+            """)
+            books_with_chunks = cursor.fetchone()[0]
+
+            cursor.execute("""
+                SELECT COUNT(DISTINCT book_id)
+                FROM book_chunks
+                WHERE embedding IS NOT NULL
+            """)
+            books_with_embeddings = cursor.fetchone()[0]
+
+            cursor.execute("""
+                SELECT COUNT(DISTINCT author_name)
+                FROM (
+                    SELECT NULLIF(BTRIM(author_name), '') AS author_name
+                    FROM books,
+                         regexp_split_to_table(COALESCE(author, ''), '\\s*,\\s*') AS author_name
+                ) authors
+                WHERE author_name IS NOT NULL
+            """)
+            total_authors = cursor.fetchone()[0]
+
+            cursor.execute("""
+                SELECT COUNT(DISTINCT publisher_name)
+                FROM books,
+                     LATERAL jsonb_array_elements_text(
+                         COALESCE(metadata::jsonb -> 'publishers', '[]'::jsonb)
+                     ) AS publisher_name
+                WHERE NULLIF(BTRIM(publisher_name), '') IS NOT NULL
+            """)
+            total_publishers = cursor.fetchone()[0]
+
+            cursor.execute("""
+                SELECT COUNT(DISTINCT category_name)
+                FROM books,
+                     LATERAL jsonb_array_elements_text(
+                         COALESCE(metadata::jsonb -> 'tags', '[]'::jsonb)
+                     ) AS category_name
+                WHERE NULLIF(BTRIM(category_name), '') IS NOT NULL
+            """)
+            total_categories = cursor.fetchone()[0]
+
+            cursor.execute("SELECT COUNT(*) FROM book_chunks")
+            total_chunks = cursor.fetchone()[0]
+
+            cursor.execute("SELECT COUNT(*) FROM book_chunks WHERE embedding IS NOT NULL")
+            chunks_with_embeddings = cursor.fetchone()[0]
+
+            cursor.execute("""
+                SELECT COALESCE(embedding_model, 'unknown') AS model, COUNT(*) AS chunks
+                FROM book_chunks
+                WHERE embedding IS NOT NULL
+                GROUP BY embedding_model
+                ORDER BY chunks DESC, model
+            """)
+            embedding_models = [
+                {"model": row[0], "chunks": row[1]}
+                for row in cursor.fetchall()
+            ]
+
+            configured_model = settings.OLLAMA_MODEL.split(":", 1)[0]
+            embedding_coverage = round(
+                (chunks_with_embeddings / total_chunks * 100) if total_chunks > 0 else 0,
+                2,
+            )
+            indexed_coverage = round(
+                (books_with_chunks / total_books * 100) if total_books > 0 else 0,
+                2,
+            )
+
+            return {
+                "livros_indexados": total_books,
+                "autores": total_authors,
+                "editoras": total_publishers,
+                "categoria": total_categories,
+                "temas_catalogados": total_categories,
+                "rag": {
+                    "livros_com_trechos": books_with_chunks,
+                    "livros_com_embeddings": books_with_embeddings,
+                    "chunks_trechos": total_chunks,
+                    "chunks_com_embeddings": chunks_with_embeddings,
+                    "modelo_de_embedding": configured_model,
+                    "modelo_de_embedding_configurado": settings.OLLAMA_MODEL,
+                    "modelos_encontrados_nos_chunks": embedding_models,
+                    "tamanho_do_chunk": settings.CHUNK_SIZE,
+                    "sobreposicao": settings.CHUNK_OVERLAP,
+                },
+                "status_biblioteca": {
+                    "livros_no_catalogo": total_books,
+                    "livros_indexados_no_rag": books_with_chunks,
+                    "cobertura_indexacao_percentual": indexed_coverage,
+                    "chunks_com_embeddings": chunks_with_embeddings,
+                    "cobertura_embeddings_percentual": embedding_coverage,
+                    "temas_catalogados": total_categories,
+                    "autores_catalogados": total_authors,
+                    "editoras_catalogadas": total_publishers,
+                    "modelo_de_embedding": configured_model,
+                    "tamanho_do_chunk": settings.CHUNK_SIZE,
+                    "sobreposicao": settings.CHUNK_OVERLAP,
+                },
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+    except Exception as e:
+        logger.error(f"Error getting library summary stats: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/overview")
 async def get_overview_stats() -> Dict[str, Any]:
     """Get overview statistics combining all metrics."""

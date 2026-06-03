@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     CHUNK_SIZE: int = Field(default=500)
     CHUNK_OVERLAP: int = Field(default=50)
     SIMILARITY_THRESHOLD: float = Field(default=0.3)
+    # Manual version counter for the embedding pipeline. Bump this (or change
+    # OLLAMA_MODEL / chunk settings) to force every stored embedding to be
+    # invalidated and regenerated with the new configuration.
+    EMBEDDING_VERSION: int = Field(default=1)
     
     # PostgreSQL
     POSTGRESQL_DB_USER: str = Field(default="generativa")

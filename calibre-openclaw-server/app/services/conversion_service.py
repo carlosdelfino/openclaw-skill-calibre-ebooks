@@ -120,21 +120,51 @@ class ConversionService:
     
     @staticmethod
     def chunk_text(text: str, chunk_size: int = None, overlap: int = None) -> List[str]:
-        """Split text into overlapping chunks."""
+        """Split text into overlapping chunks.
+
+        Chunks are snapped to whitespace boundaries so words are not cut in the
+        middle, and empty/whitespace-only chunks are discarded. This produces
+        cleaner inputs for the embedding model.
+        """
         chunk_size = chunk_size or settings.CHUNK_SIZE
         overlap = overlap or settings.CHUNK_OVERLAP
-        
-        chunks = []
+
+        # Guard against pathological configuration that would loop forever.
+        if overlap >= chunk_size:
+            overlap = max(0, chunk_size // 5)
+
+        text = (text or "").strip()
+        if not text:
+            logger.info("chunk_text received empty text; returning no chunks")
+            return []
+
+        chunks: List[str] = []
         start = 0
         text_length = len(text)
-        
+
         while start < text_length:
-            end = start + chunk_size
-            chunk = text[start:end]
-            chunks.append(chunk)
-            start = end - overlap
-        
-        logger.info(f"Split text into {len(chunks)} chunks (size={chunk_size}, overlap={overlap})")
+            end = min(start + chunk_size, text_length)
+
+            # Snap the end to the previous whitespace to avoid splitting a word,
+            # unless that would make the chunk too small.
+            if end < text_length:
+                boundary = text.rfind(" ", start, end)
+                if boundary > start + (chunk_size // 2):
+                    end = boundary
+
+            chunk = text[start:end].strip()
+            if chunk:
+                chunks.append(chunk)
+
+            if end >= text_length:
+                break
+
+            # Advance, keeping the requested overlap, always moving forward.
+            start = max(end - overlap, start + 1)
+
+        logger.info(
+            f"Split text into {len(chunks)} chunks (size={chunk_size}, overlap={overlap})"
+        )
         return chunks
     
     @staticmethod

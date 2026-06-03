@@ -1,13 +1,48 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pathlib import Path
 
-from app.models import EmbeddingStatusResponse, EmbeddingQueueResponse, QueueItemResponse
+from app.models import (
+    EmbeddingStatusResponse,
+    EmbeddingQueueResponse,
+    QueueItemResponse,
+    EmbeddingModelInfoResponse,
+    EmbeddingReindexResponse,
+)
 from app.services.book_service import book_service
 from app.services.embedding_service import embedding_service
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/embeddings", tags=["embeddings"])
+
+
+@router.get("/model", response_model=EmbeddingModelInfoResponse)
+async def get_embedding_model_info():
+    """Get the active embedding model and version/signature information.
+
+    Use this to verify whether stored embeddings match the current model
+    configuration (``up_to_date``).
+    """
+    try:
+        return EmbeddingModelInfoResponse(**embedding_service.get_version_info())
+    except Exception as e:
+        logger.error(f"Error getting embedding model info: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/reindex", response_model=EmbeddingReindexResponse)
+async def reindex_embeddings():
+    """Force a re-check of the embedding version.
+
+    If the model/configuration signature changed, all stored embeddings are
+    invalidated and re-queued so the worker regenerates them with the current
+    model. Safe to call repeatedly: it is a no-op when already up to date.
+    """
+    try:
+        return EmbeddingReindexResponse(**embedding_service.reconcile_embedding_version())
+    except Exception as e:
+        logger.error(f"Error reindexing embeddings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/status/{book_id}", response_model=EmbeddingStatusResponse)

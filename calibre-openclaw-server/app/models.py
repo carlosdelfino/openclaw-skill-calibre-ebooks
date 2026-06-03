@@ -90,6 +90,32 @@ class QueueItemResponse(BaseModel):
         from_attributes = True
 
 
+class EmbeddingModelInfoResponse(BaseModel):
+    """Response model for the active embedding model / version info."""
+    model: str
+    dimension: Optional[int] = None
+    chunk_size: int
+    chunk_overlap: int
+    embedding_version: int
+    current_signature: Optional[str] = None
+    stored_signature: Optional[str] = None
+    stored_model: Optional[str] = None
+    stored_dimension: Optional[str] = None
+    up_to_date: Optional[bool] = None
+    error: Optional[str] = None
+
+
+class EmbeddingReindexResponse(BaseModel):
+    """Response model for a forced embedding reconciliation/reindex."""
+    changed: bool
+    invalidated: Optional[int] = None
+    baseline: Optional[bool] = None
+    signature: Optional[str] = None
+    old_signature: Optional[str] = None
+    new_signature: Optional[str] = None
+    error: Optional[str] = None
+
+
 class SyncResponse(BaseModel):
     """Response model for sync operation."""
     synced_count: int

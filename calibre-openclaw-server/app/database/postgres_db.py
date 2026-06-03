@@ -28,6 +28,8 @@ class PostgreSQLDB:
             logger.info("PostgreSQL connection pool initialized")
             # Ensure settings table exists
             self._ensure_settings_table()
+            # Ensure embedding bookkeeping columns exist
+            self._ensure_embeddings_schema()
     
     @contextmanager
     def get_connection(self):
@@ -66,6 +68,104 @@ class PostgreSQLDB:
             cursor = conn.cursor()
             cursor.execute(query)
             logger.info("Settings table ensured")
+    
+    def _ensure_embeddings_schema(self):
+        """Ensure embedding bookkeeping columns exist (idempotent migration)."""
+        query = """
+        ALTER TABLE book_chunks
+            ADD COLUMN IF NOT EXISTS embedding_model TEXT
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(query)
+                logger.info("book_chunks.embedding_model column ensured")
+        except Exception as e:
+            # book_chunks may not exist yet on a fresh database; log and continue.
+            logger.warning(f"Could not ensure embeddings schema (will retry later): {e}")
+    
+    # Generic settings helpers
+    def get_setting(self, key: str) -> Optional[str]:
+        """Get a raw setting value by key."""
+        query = "SELECT value FROM settings WHERE key = %s"
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, (key,))
+            result = cursor.fetchone()
+            return result[0] if result else None
+    
+    def set_setting(self, key: str, value: str):
+        """Insert or update a setting value by key."""
+        query = """
+        INSERT INTO settings (key, value)
+        VALUES (%s, %s)
+        ON CONFLICT (key)
+        DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, (key, str(value)))
+            logger.info(f"Setting '{key}' updated")
+    
+    def get_embedding_column_dimension(self) -> Optional[int]:
+        """Return the declared dimension of book_chunks.embedding (pgvector typmod)."""
+        query = """
+        SELECT a.atttypmod
+        FROM pg_attribute a
+        JOIN pg_class c ON a.attrelid = c.oid
+        WHERE c.relname = 'book_chunks' AND a.attname = 'embedding'
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query)
+            result = cursor.fetchone()
+            if result and result[0] and result[0] > 0:
+                # For pgvector, atttypmod stores the dimension directly.
+                return int(result[0])
+            return None
+    
+    def invalidate_all_embeddings(self, new_dimension: Optional[int] = None) -> int:
+        """Clear all stored embeddings so they can be regenerated.
+
+        If ``new_dimension`` differs from the current column dimension, the
+        embedding column type is altered to the new dimension. Completed/failed
+        queue items are reset to pending so the worker reprocesses every book.
+        Returns the number of chunks that had their embedding cleared.
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "UPDATE book_chunks SET embedding = NULL, embedding_model = NULL "
+                "WHERE embedding IS NOT NULL"
+            )
+            cleared = cursor.rowcount
+
+            current_dim = self.get_embedding_column_dimension()
+            if new_dimension and current_dim and new_dimension != current_dim:
+                logger.warning(
+                    "Altering book_chunks.embedding dimension from %s to %s",
+                    current_dim,
+                    new_dimension,
+                )
+                cursor.execute(
+                    f"ALTER TABLE book_chunks "
+                    f"ALTER COLUMN embedding TYPE vector({int(new_dimension)})"
+                )
+
+            cursor.execute(
+                "UPDATE processing_queue SET status = 'pending', "
+                "completed_at = NULL, error_message = NULL "
+                "WHERE status IN ('completed', 'failed')"
+            )
+            requeued = cursor.rowcount
+
+            logger.warning(
+                "Invalidated %s embedding(s) and reset %s queue item(s) to pending",
+                cleared,
+                requeued,
+            )
+            return cleared
     
     def get_calibre_db_mtime(self) -> Optional[float]:
         """Get the last modification time of Calibre metadata.db stored in PostgreSQL."""
@@ -196,21 +296,23 @@ class PostgreSQLDB:
     
     # Book chunks operations
     def insert_chunk(self, book_id: int, chunk_index: int, content: str, 
-                     embedding: Optional[List[float]] = None) -> int:
-        """Insert a book chunk with optional embedding."""
+                     embedding: Optional[List[float]] = None,
+                     embedding_model: Optional[str] = None) -> int:
+        """Insert a book chunk with optional embedding and the model used."""
         query = """
-        INSERT INTO book_chunks (book_id, chunk_index, content, embedding)
-        VALUES (%s, %s, %s, %s)
+        INSERT INTO book_chunks (book_id, chunk_index, content, embedding, embedding_model)
+        VALUES (%s, %s, %s, %s, %s)
         ON CONFLICT (book_id, chunk_index)
         DO UPDATE SET 
             content = EXCLUDED.content,
-            embedding = EXCLUDED.embedding
+            embedding = EXCLUDED.embedding,
+            embedding_model = EXCLUDED.embedding_model
         RETURNING id
         """
         
         with self.get_connection() as conn:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
-            cursor.execute(query, (book_id, chunk_index, content, embedding))
+            cursor.execute(query, (book_id, chunk_index, content, embedding, embedding_model))
             result = cursor.fetchone()
             return result['id']
     
@@ -236,6 +338,17 @@ class PostgreSQLDB:
             cursor.execute(query, (book_id,))
             result = cursor.fetchone()
             return result['count']
+
+    def delete_chunks_for_book(self, book_id: int) -> int:
+        """Delete all chunks and embeddings for a book."""
+        query = "DELETE FROM book_chunks WHERE book_id = %s"
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, (book_id,))
+            deleted = cursor.rowcount
+            logger.info(f"Deleted {deleted} chunk(s) for book {book_id}")
+            return deleted
     
     def has_embeddings(self, book_id: int) -> bool:
         """Check if a book has embeddings generated."""
@@ -342,6 +455,32 @@ class PostgreSQLDB:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
             cursor.execute(query, (limit,))
             return cursor.fetchall()
+
+    def get_random_book_without_embeddings(self) -> Optional[Dict[str, Any]]:
+        """Get one random book that has not been embedded yet."""
+        query = """
+        SELECT b.*
+        FROM books b
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM book_chunks bc
+            WHERE bc.book_id = b.id
+              AND bc.embedding IS NOT NULL
+        )
+        AND NOT EXISTS (
+            SELECT 1
+            FROM processing_queue pq
+            WHERE pq.book_id = b.id
+              AND pq.status = 'failed'
+        )
+        ORDER BY RANDOM()
+        LIMIT 1
+        """
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor.execute(query)
+            return cursor.fetchone()
 
 
 # Global instance
