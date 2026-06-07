@@ -1,5 +1,5 @@
 ---
-nem contrigger: always_on
+trigger: always_on
 description: padronizadas para formatação de arquivos markdown, como documentação, readmes, descrições, resumos e tutoriais
 ---
 # REGRAS DE DOCUMENTAÇÃO - MARKDOWN
@@ -13,7 +13,6 @@ Estas regras aplicam-se a TODOS os arquivos markdown (`.md`) criados no projeto,
 - Guias e tutoriais
 - Notas de projeto
 - Arquivos de configuração em formato markdown
-- Não aplicar nos arquivos da pasta
 
 ## ESTRUTURA OBRIGATÓRIA DOS ARQUIVOS
 
@@ -38,7 +37,7 @@ Neste repositório, use as informações do repositório obtidas pelo git. Para 
 ```markdown
 <!-- Animated Header -->
 <p align="center">
-  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:0f172a,50:1a56db,100:10b981&height=220&section=header&text=GitAnalytics&fontSize=42&fontColor=ffffff&animation=fadeIn&fontAlignY=35&desc=Plataforma%20de%20An%C3%A1lise%20Profunda%20de%20Reposit%C3%B3rios%20GitHub&descSize=18&descAlignY=55&descColor=94a3b8" width="100%" alt="GitAnalytics Header"/>
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:0f172a,50:1a56db,100:10b981&height=220&section=header&text=GitAnalytics&fontSize=42&fontColor=ffffff&animation=fadeIn&fontAlignY=35&desc=Plataforma%20de%20An%C3%A1lise%20Profunda%20de%20Reposit%C3%B3rios%20GitHub&descSize=18&descAlignY=55&descColor=94a3b8" width="100%" alt="Header"/>
 </p>
 ```
 
@@ -76,10 +75,8 @@ O Autor Inicial e quem atualizou inicialmente é "Rapport GenerAtiva".
 **Autor:** [Nome do autor, se aplicável]
 **Versão:** [Versão do documento, se aplicável]
 **Última Atualização:** [AAAA-MM-DD]
-**Atualizado por:** Carlos Delfino
+**Atualizado por:** [Nome de quem atualizou]
 **Histórico de Alterações:**
-
-- 2026-05-08 - Atualizado por Carlos Delfino - Removendo arquivos do Agentic....
 - [AAAA-MM-DD] - Criado por [Autor] - Versão [Versão]
 - [AAAA-MM-DD] - Atualizado por [Autor] - [Descrição da alteração] - Versão [Versão]
 ```
@@ -120,8 +117,6 @@ O projeto utiliza uma ferramenta automática para gerenciar o histórico de alte
 - Inclua `alt` descritivo
 - Use markdown padrão: `![descrição](url)`
 
-## Onde não aplicar esta regra
-
 ## VALIDAÇÃO AUTOMÁTICA
 
 Ao criar ou modificar arquivos markdown, verifique:
@@ -148,7 +143,7 @@ Ao criar ou modificar arquivos markdown, verifique:
 
 <!-- Animated Header -->
 <p align="center">
-  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:0f172a,50:1a56db,100:10b981&height=220&section=header&text=GitAnalytics&fontSize=42&fontColor=ffffff&animation=fadeIn&fontAlignY=35&desc=Plataforma%20de%20An%C3%A1lise%20Profunda%20de%20Reposit%C3%B3rios%20GitHub&descSize=18&descAlignY=55&descColor=94a3b8" width="100%" alt="GitAnalytics Header"/>
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:0f172a,50:1a56db,100:10b981&height=220&section=header&text=GitAnalytics&fontSize=42&fontColor=ffffff&animation=fadeIn&fontAlignY=35&desc=Plataforma%20de%20An%C3%A1lise%20Profunda%20de%20Reposit%C3%B3rios%20GitHub&descSize=18&descAlignY=55&descColor=94a3b8" width="100%" alt="Header"/>
 </p>
 
 ## Título do Documento
@@ -171,18 +166,3 @@ Conteúdo específico do arquivo aqui...
 - [AAAA-MM-DD] - Criado por [Autor] - Versão [Versão]
 - [AAAA-MM-DD] - Atualizado por [Autor] - [Descrição da alteração] - Versão [Versão]
 ```
-
----
-
-**Resumo:** Regras padronizadas e otimizadas para formatação de arquivos markdown, eliminando ambiguidades e garantindo consistência.
-**Data de Criação:** 2025-10-15
-**Autor:** Rapport GenerAtiva
-**Versão:** 2.0
-**Última Atualização:** 2026-05-19
-**Atualizado por:** Carlos Delfino
-**Histórico de Alterações:**
-
-- 2026-05-08 - Atualizado por Carlos Delfino - Removendo arquivos do Agentic....
-- 2026-05-19 - Atualizado por Rapport GenerAtiva - Ajuste do template para o projeto GitAnalytics e repositório RapportTecnologia/GitAnalytics - Versão 2.0
-- 2025-10-15 - Criado por Sistema de Documentação - Versão 2.0
-- 2025-04-02 - Atualizado por Sistema de Documentação - Adicionado histórico automático e integração com git - Versão 2.1

@@ -1,15 +1,3 @@
-![visitors](https://visitor-badge.laobi.icu/badge?page_id=carlosdelfino.openclaw-skill-calibre-ebooks)
-[![License: CC BY-SA 4.0](https://img.shields.io/badge/License-CC_BY--SA_4.0-blue.svg)](https://creativecommons.org/licenses/by-sa/4.0/)
-![Language: Portuguese](https://img.shields.io/badge/Language-Portuguese-brightgreen.svg)
-![Workflow](https://img.shields.io/badge/Workflow-RAG-blue)
-![RAG](https://img.shields.io/badge/RAG-Semantic-green)
-![Status](https://img.shields.io/badge/Status-Development-brightgreen)
-
-<!-- Animated Header -->
-<p align="center">
-  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:0f172a,50:1a56db,100:10b981&height=220&section=header&text=RAG%20Search%20PDF&fontSize=42&fontColor=ffffff&animation=fadeIn&fontAlignY=35&desc=Busca%20Contextual%20com%20Links%20PDF&descSize=18&descAlignY=55&descColor=94a3b8" width="100%" alt="RAG Search PDF Header"/>
-</p>
-
 ---
 description: Busca contextual na base de documentos com links clicáveis para PDFs
 ---
@@ -80,18 +68,3 @@ Busque por "transformer architecture" e me mostre os 3 melhores resultados com l
 ## Configuração
 
 Este workflow usa o MCP server `rag-local` com suporte aprimorado para PDFs. Certifique-se de que os PDFs originais estejam acessíveis nos caminhos registrados no banco de dados.
-
-<p align="center">
-  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:10b981,50:1a56db,100:0f172a&height=120&section=footer" width="100%" alt="Footer"/>
-</p>
-
----
-**Resumo:** Workflow para busca contextual em base de documentos com links clicáveis para PDFs, permitindo abertura direta na página encontrada via MCP server rag-local.
-**Data de Criação:** 2026-05-08
-**Autor:** Carlos Delfino
-**Versão:** 1.0
-**Última Atualização:** 2026-05-22
-**Atualizado por:** Carlos Delfino
-**Histórico de Alterações:**
-- 2026-05-22 - Atualizado por Carlos Delfino - Adição de badges, header e footer animados seguindo novas regras de documentação - Versão 1.1
-- 2026-05-08 - Criado por Carlos Delfino - Versão 1.0

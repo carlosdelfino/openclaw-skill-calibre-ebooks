@@ -87,9 +87,10 @@ Contribuições são bem-vindas! Para colaborar com a melhoria deste projeto:
 **Resumo:** OpenClaw skill para gerenciamento de biblioteca Calibre local, usando API local e scripts Python.
 **Data de Criação:** 2025-05-30
 **Autor:** Rapport GenerAtiva
-**Versão:** 0.0.6
-**Última Atualização:** 2025-05-30
+**Versão:** 0.0.10
+**Última Atualização:** 2025-05-31
 **Atualizado por:** Carlos Delfino
 **Histórico de Alterações:**
+- 2025-05-31 - Criado por Rapport GenerAtiva - Versão 0.0.10
 - 2025-05-30 - Atualizado por Carlos Delfino - Aplicação das regras de documentação - Versão 0.0.6
 - 2025-05-30 - Criado por Rapport GenerAtiva - Versão 0.0.6
