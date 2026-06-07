@@ -1,7 +1,11 @@
 ---
 trigger: model_decision
-description: Sempre que fizer transcrições de audio e video
+description: Whenever audio or video transcription is performed
 ---
-As transcrições devem ser formatadas conforme descrito para documentação, porém deve no ínicio ter um resumo do que se trata a transcrição, deve também ter um indice para tópicos chaves no texto.
+Transcriptions must follow the documentation format, but they must begin with a
+summary of what the transcription covers and include an index for key topics in
+the text.
 
-Caso o video ou áudio não tenha legenda ou outro tipo de informação que contribua com a transcrição use o script de transcrição "transcribe.[sh|ps1|cmd]" na pasta script.
+If the video or audio has no captions or other information that helps with the
+transcription, use the `transcribe.[sh|ps1|cmd]` transcription script in the
+scripts folder.

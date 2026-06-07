@@ -1,4 +1,9 @@
 ---
 trigger: always_on
 ---
-Após qualquer modificação de código, execute testes sistemáticos: testes unitários para funções individuais, testes de integração para componentes, testes de aceitação para requisitos de negócio. Verifique logs gerados para confirmar registros corretos. Teste cenários reais, condições de erro e casos extremos. Documente todos os testes realizados, resultados e correções aplicadas. Em falhas, analise causa raiz, corrija e repita até aprovação.
+After any code change, run systematic tests: unit tests for individual
+functions, integration tests for components, and acceptance tests for business
+requirements. Review generated logs to confirm that records are correct. Test
+real scenarios, error conditions, and edge cases. Document all tests performed,
+results, and applied fixes. On failure, analyze the root cause, fix it, and
+repeat until approved.

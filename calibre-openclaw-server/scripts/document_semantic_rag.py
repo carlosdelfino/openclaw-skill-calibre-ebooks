@@ -6,7 +6,7 @@ This script converts PDF, EPUB, Djvu and other formats to Markdown,
 extracts semantic embeddings and enables content search.
 
 Usage:
-    python document_semantic_rag.py --convert arquivo.pdf
+    python document_semantic_rag.py --convert file.pdf
     python document_semantic_rag.py --calibre-id 123 --format PDF
     python document_semantic_rag.py --search "search term"
     python document_semantic_rag.py --convert-all ./folder
@@ -442,21 +442,21 @@ class DocumentConverter:
                 
                 page = doc[page_num]
                 
-                # Extrair texto
+                # Extract text
                 text = page.get_text()
                 section_title = self._detect_section_title(text)
                 
-                # Limpar o texto
+                # Clean the text
                 text = self._clean_text(text)
                 
                 if text.strip():
                     section_marker = (
-                        f"\n\n### Seção: {section_title}"
+                        f"\n\n### Section: {section_title}"
                         if section_title
                         else ""
                     )
                     markdown_content.append(
-                        f"## Página {page_num + 1}{section_marker}\n\n{text}\n"
+                        f"## Page {page_num + 1}{section_marker}\n\n{text}\n"
                     )
                 
                 self._show_progress(page_num + 1, total_pages, "Converting PDF", f"pages")
@@ -526,11 +526,11 @@ class DocumentConverter:
             # OCR using Tesseract
                 text = pytesseract.image_to_string(image, lang=self.tesseract_lang)
                 
-                # Limpar texto
+                # Clean text
                 text = self._clean_text(text)
                 
                 if text.strip():
-                    markdown_content.append(f"## Página {i + 1}\n\n{text}\n")
+                    markdown_content.append(f"## Page {i + 1}\n\n{text}\n")
             
             return "\n".join(markdown_content)
         except Exception as e:
@@ -700,8 +700,8 @@ class DocumentConverter:
         self._log(f"Dividing content into chunks of {chunk_size} characters with {chunk_overlap} overlap", "INFO")
         
         # Pattern to detect page markers
-        page_pattern = re.compile(r'## Página (\d+)')
-        section_pattern = re.compile(r'### Seção:\s*(.+)')
+        page_pattern = re.compile(r'## Page (\d+)')
+        section_pattern = re.compile(r'### Section:\s*(.+)')
         
         # Split by paragraphs and track current page
         paragraphs = content.split('\n\n')
@@ -1541,9 +1541,9 @@ class DocumentConverter:
     def _clean_chunk_for_display(self, chunk: str) -> str:
         """Clean chunk for table display."""
         # Remove page markers
-        chunk = re.sub(r'## Página \d+', '', chunk)
-        chunk = re.sub(r'### Seção:\s*.+', '', chunk)
-        chunk = re.sub(r'Página \d+', '', chunk)
+        chunk = re.sub(r'## Page \d+', '', chunk)
+        chunk = re.sub(r'### Section:\s*.+', '', chunk)
+        chunk = re.sub(r'Page \d+', '', chunk)
         
         # Remove excessive line breaks
         chunk = ' '.join(chunk.split())
@@ -1557,8 +1557,8 @@ class DocumentConverter:
         if page and str(page) != 'N/A':
             location_parts.append(f"p. {page}")
         if section_title:
-            location_parts.append(f"secao/capitulo: {section_title}")
-        location = "; ".join(location_parts) if location_parts else "localizacao nao informada"
+            location_parts.append(f"section/chapter: {section_title}")
+        location = "; ".join(location_parts) if location_parts else "location not provided"
         return f"{book_name} ({location})"
     
     def _extract_relevant_chunk(self, chunk: str, query: str) -> str:

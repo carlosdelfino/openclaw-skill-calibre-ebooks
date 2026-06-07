@@ -1,45 +1,47 @@
 ---
-description: Busca contextual na base de documentos usando embeddings
+description: Contextual search in the document base using embeddings
 ---
 
-# Workflow de Busca Contextual RAG
+# RAG Search Workflow
 
-Este workflow permite realizar buscas inteligentes na sua base de documentos indexados usando embeddings e busca semântica.
+This workflow performs intelligent searches over the indexed document base
+using embeddings and semantic search.
 
-## Uso
+## Usage
 
-Digite `/rag-search` seguido do termo que deseja pesquisar.
+Type `/rag-search` followed by the term you want to search.
 
-## Exemplos
+## Examples
 
-- `/rag-search redes neurais convolucionais`
-- `/rag-search machine learning algorithms`
-- `/rag-search python programming`
+- `/rag-search machine learning`
+- `/rag-search neural networks`
 - `/rag-search data science`
 
-## O que acontece
+## What Happens
 
-1. **Geração de Embedding**: O termo de busca é convertido em um vetor numérico usando Ollama
-2. **Busca Semântica**: O sistema encontra documentos com significados similares
-3. **Ranking**: Resultados são ordenados por relevância (similaridade)
-4. **Apresentação**: Top 5 resultados são exibidos com contexto
+1. **Embedding generation:** the search term is converted into a numeric vector
+   using Ollama.
+2. **Semantic search:** the system finds documents with similar meanings.
+3. **Ranking:** results are ordered by relevance and similarity.
+4. **Presentation:** the top five results are displayed with context.
 
-## Resultados
+## Results
 
-Cada resultado inclui:
-- 📄 Nome do documento
-- 📖 Página específica
-- 🎯 Trecho relevante
-- 📊 Pontuação de similaridade
-- 🔧 Opções para explorar mais
+Each result includes:
 
-## Dicas
+- document name;
+- specific page;
+- relevant excerpt;
+- similarity score;
+- options for deeper exploration.
 
-- Use termos específicos e técnicos para melhores resultados
-- Combine conceitos: `transformer attention mechanism`
-- Varie os termos se não encontrar resultados
-- A similaridade varia de 0.0 a 1.0 (maior = mais relevante)
+## Tips
 
-## Configuração
+- Use specific technical terms for better results.
+- Try synonyms or related concepts.
+- Vary the terms if no results are found.
 
-Este workflow usa o MCP server `rag-local` que deve estar configurado no Windsurf.
+## Configuration
+
+This workflow uses the `rag-local` MCP server, which must be configured in
+Windsurf.

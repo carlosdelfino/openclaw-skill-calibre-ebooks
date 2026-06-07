@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="en-US">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -416,102 +416,102 @@
     <div class="container">
         <div class="header">
             <h1>📚 Calibre OpenClaw Dashboard</h1>
-            <p>Monitoramento em tempo real do banco de dados e sistema de busca semântica</p>
+            <p>Real-time monitoring of the database and semantic search system</p>
             <div class="status-indicator">
                 <div class="status-dot" id="statusDot"></div>
-                <span id="statusText">Conectando...</span>
+                <span id="statusText">Connecting...</span>
             </div>
         </div>
 
         <div class="grid">
             <div class="card">
-                <div class="card-title">Total de Livros</div>
+                <div class="card-title">Total Books</div>
                 <div class="stat-value" id="totalBooks">0</div>
-                <div class="stat-label">Livros no banco de dados</div>
-                <div class="stat-change positive" id="booksWithEmbeddings">0 com embeddings</div>
+                <div class="stat-label">Books in the database</div>
+                <div class="stat-change positive" id="booksWithEmbeddings">0 with embeddings</div>
                 <div class="metric-grid">
                     <div class="metric-item">
                         <div class="metric-value" id="booksWithoutEmbeddings">0</div>
-                        <div class="metric-label">Sem Embeddings</div>
+                        <div class="metric-label">Without Embeddings</div>
                     </div>
                     <div class="metric-item">
                         <div class="metric-value" id="embeddingCoverage">0%</div>
-                        <div class="metric-label">Cobertura</div>
+                        <div class="metric-label">Coverage</div>
                     </div>
                 </div>
             </div>
 
             <div class="card">
-                <div class="card-title">Total de Chunks</div>
+                <div class="card-title">Total Chunks</div>
                 <div class="stat-value" id="totalChunks">0</div>
-                <div class="stat-label">Segmentos de texto processados</div>
-                <div class="stat-change positive" id="chunksWithEmbeddings">0 com embeddings</div>
+                <div class="stat-label">Processed text segments</div>
+                <div class="stat-change positive" id="chunksWithEmbeddings">0 with embeddings</div>
                 <div class="metric-grid">
                     <div class="metric-item">
                         <div class="metric-value" id="chunksWithoutEmbeddings">0</div>
-                        <div class="metric-label">Sem Embeddings</div>
+                        <div class="metric-label">Without Embeddings</div>
                     </div>
                     <div class="metric-item">
                         <div class="metric-value" id="avgChunksPerBook">0</div>
-                        <div class="metric-label">Média por Livro</div>
+                        <div class="metric-label">Average per Book</div>
                     </div>
                 </div>
             </div>
 
             <div class="card">
-                <div class="card-title">Embeddings Armazenados</div>
+                <div class="card-title">Stored Embeddings</div>
                 <div class="stat-value" id="totalEmbeddings">0</div>
-                <div class="stat-label">Vetores de embeddings</div>
+                <div class="stat-label">Embedding vectors</div>
                 <div class="progress-bar">
                     <div class="progress-fill" id="embeddingProgress" style="width: 0%"></div>
                 </div>
-                <div class="stat-label" style="margin-top: 10px" id="embeddingRate">0% de cobertura</div>
+                <div class="stat-label" style="margin-top: 10px" id="embeddingRate">0% coverage</div>
             </div>
 
             <div class="card">
-                <div class="card-title">Fila de Processamento</div>
+                <div class="card-title">Processing Queue</div>
                 <div class="queue-item">
-                    <span>Pendente</span>
+                    <span>Pending</span>
                     <span class="queue-status pending" id="pendingQueue">0</span>
                 </div>
                 <div class="queue-item">
-                    <span>Processando</span>
+                    <span>Processing</span>
                     <span class="queue-status processing" id="processingQueue">0</span>
                 </div>
                 <div class="queue-item">
-                    <span>Concluído</span>
+                    <span>Completed</span>
                     <span class="queue-status completed" id="completedQueue">0</span>
                 </div>
                 <div class="queue-item">
-                    <span>Falhou</span>
+                    <span>Failed</span>
                     <span class="queue-status failed" id="failedQueue">0</span>
                 </div>
             </div>
 
             <div class="card full-width">
-                <div class="card-title">Distribuição de Embeddings</div>
+                <div class="card-title">Embedding Distribution</div>
                 <div class="chart-container">
                     <canvas id="embeddingChart"></canvas>
                 </div>
             </div>
 
             <div class="card full-width">
-                <div class="card-title">Status do Sistema</div>
+                <div class="card-title">System Status</div>
                 <div class="chart-container">
                     <canvas id="systemChart"></canvas>
                 </div>
             </div>
 
             <div class="card full-width">
-                <div class="card-title">Armazenamento</div>
+                <div class="card-title">Storage</div>
                 <div class="metric-grid">
                     <div class="metric-item">
                         <div class="metric-value" id="librarySize">0 GB</div>
-                        <div class="metric-label">Biblioteca Calibre</div>
+                        <div class="metric-label">Calibre Library</div>
                     </div>
                     <div class="metric-item">
                         <div class="metric-value" id="databaseSize">0 MB</div>
-                        <div class="metric-label">Banco de Dados</div>
+                        <div class="metric-label">Database</div>
                     </div>
                     <div class="metric-item">
                         <div class="metric-value" id="totalSize">0 GB</div>
@@ -521,48 +521,48 @@
             </div>
 
             <div class="card full-width">
-                <div class="card-title">Livros Recentes</div>
+                <div class="card-title">Recent Books</div>
                 <div class="book-list" id="recentBooks">
                     <div class="book-item">
                         <div class="book-info">
-                            <div class="book-title">Carregando...</div>
-                            <div class="book-author">Aguarde</div>
+                            <div class="book-title">Loading...</div>
+                            <div class="book-author">Please wait</div>
                         </div>
                     </div>
                 </div>
             </div>
 
             <div class="card full-width">
-                <div class="card-title">Livros com Problemas</div>
+                <div class="card-title">Books with Problems</div>
                 <div class="book-list" id="problemBooks">
                     <div class="book-item">
                         <div class="book-info">
-                            <div class="book-title">Carregando...</div>
-                            <div class="book-author">Aguarde</div>
+                            <div class="book-title">Loading...</div>
+                            <div class="book-author">Please wait</div>
                         </div>
                     </div>
                 </div>
             </div>
 
             <div class="card full-width">
-                <div class="card-title">Links Rápidos</div>
+                <div class="card-title">Quick Links</div>
                 <div class="links-section">
                     <h3>API Documentation</h3>
                     <a href="/docs" class="api-link">📖 Swagger UI</a>
                     <a href="/redoc" class="api-link">📚 ReDoc</a>
                     <a href="/openapi.json" class="api-link">🔧 OpenAPI JSON</a>
                     <h3>Endpoints</h3>
-                    <a href="/api/books" class="api-link">📕 Listar Livros</a>
-                    <a href="/api/books/sync" class="api-link">🔄 Sincronizar</a>
-                    <a href="/api/books/problems" class="api-link">⚠️ Livros com Problemas</a>
-                    <a href="/api/stats/overview" class="api-link">📊 Estatísticas</a>
+                    <a href="/api/books" class="api-link">📕 List Books</a>
+                    <a href="/api/books/sync" class="api-link">🔄 Sync</a>
+                    <a href="/api/books/problems" class="api-link">⚠️ Books with Problems</a>
+                    <a href="/api/stats/overview" class="api-link">📊 Statistics</a>
                     <a href="/health" class="api-link">❤️ Health Check</a>
                 </div>
             </div>
         </div>
 
         <div class="last-updated">
-            Última atualização: <span id="lastUpdated">--</span>
+            Last updated: <span id="lastUpdated">--</span>
         </div>
     </div>
 
@@ -577,7 +577,7 @@
             embeddingChart = new Chart(embeddingCtx, {
                 type: 'doughnut',
                 data: {
-                    labels: ['Com Embeddings', 'Sem Embeddings'],
+                    labels: ['With Embeddings', 'Without Embeddings'],
                     datasets: [{
                         data: [0, 0],
                         backgroundColor: [
@@ -607,9 +607,9 @@
             systemChart = new Chart(systemCtx, {
                 type: 'bar',
                 data: {
-                    labels: ['Pendente', 'Processando', 'Concluído', 'Falhou'],
+                    labels: ['Pending', 'Processing', 'Completed', 'Failed'],
                     datasets: [{
-                        label: 'Itens na Fila',
+                        label: 'Queue Items',
                         data: [0, 0, 0, 0],
                         backgroundColor: [
                             'rgba(255, 152, 0, 0.8)',
@@ -650,7 +650,7 @@
             // Update books stats
             document.getElementById('totalBooks').textContent = db.books.total.toLocaleString();
             document.getElementById('booksWithEmbeddings').textContent = 
-                `${db.books.with_embeddings.toLocaleString()} com embeddings`;
+                `${db.books.with_embeddings.toLocaleString()} with embeddings`;
             document.getElementById('booksWithoutEmbeddings').textContent = 
                 db.books.without_embeddings.toLocaleString();
             
@@ -662,7 +662,7 @@
             // Update chunks stats
             document.getElementById('totalChunks').textContent = db.chunks.total.toLocaleString();
             document.getElementById('chunksWithEmbeddings').textContent = 
-                `${db.chunks.with_embeddings.toLocaleString()} com embeddings`;
+                `${db.chunks.with_embeddings.toLocaleString()} with embeddings`;
             document.getElementById('chunksWithoutEmbeddings').textContent = 
                 db.chunks.without_embeddings.toLocaleString();
             
@@ -677,7 +677,7 @@
             document.getElementById('embeddingProgress').style.width = 
                 `${db.embeddings.utilization_rate}%`;
             document.getElementById('embeddingRate').textContent = 
-                `${db.embeddings.utilization_rate}% de cobertura`;
+                `${db.embeddings.utilization_rate}% coverage`;
 
             // Update queue stats
             document.getElementById('pendingQueue').textContent = 
@@ -714,7 +714,7 @@
 
             // Update timestamp
             document.getElementById('lastUpdated').textContent = 
-                new Date(data.timestamp).toLocaleString('pt-BR');
+                new Date(data.timestamp).toLocaleString('en-US');
         }
 
         async function loadRecentBooks() {
@@ -732,12 +732,12 @@
                         
                         const hasEmbeddings = book.has_embeddings || false;
                         const statusClass = hasEmbeddings ? 'has-embeddings' : 'no-embeddings';
-                        const statusText = hasEmbeddings ? 'Com Embeddings' : 'Sem Embeddings';
+                        const statusText = hasEmbeddings ? 'With Embeddings' : 'Without Embeddings';
                         
                         bookItem.innerHTML = `
                             <div class="book-info">
-                                <div class="book-title">${book.title || 'Sem título'}</div>
-                                <div class="book-author">${book.author || 'Autor desconhecido'}</div>
+                                <div class="book-title">${book.title || 'Untitled'}</div>
+                                <div class="book-author">${book.author || 'Unknown author'}</div>
                             </div>
                             <div class="book-status ${statusClass}">${statusText}</div>
                         `;
@@ -745,11 +745,11 @@
                         booksList.appendChild(bookItem);
                     });
                 } else {
-                    booksList.innerHTML = '<div class="book-item"><div class="book-info"><div class="book-title">Nenhum livro encontrado</div></div></div>';
+                    booksList.innerHTML = '<div class="book-item"><div class="book-info"><div class="book-title">No books found</div></div></div>';
                 }
             } catch (error) {
                 console.error('Error loading recent books:', error);
-                document.getElementById('recentBooks').innerHTML = '<div class="book-item"><div class="book-info"><div class="book-title">Erro ao carregar livros</div></div></div>';
+                document.getElementById('recentBooks').innerHTML = '<div class="book-item"><div class="book-info"><div class="book-title">Error loading books</div></div></div>';
             }
         }
 
@@ -776,8 +776,8 @@
                         
                         bookItem.innerHTML = `
                             <div class="book-info">
-                                <div class="book-title">${book.title || 'Sem título'}</div>
-                                <div class="book-author">${book.author || 'Autor desconhecido'}</div>
+                                <div class="book-title">${book.title || 'Untitled'}</div>
+                                <div class="book-author">${book.author || 'Unknown author'}</div>
                                 <div style="margin-top: 5px;">${problemTags}</div>
                             </div>
                         `;
@@ -785,11 +785,11 @@
                         problemBooksList.appendChild(bookItem);
                     });
                 } else {
-                    problemBooksList.innerHTML = '<div class="book-item"><div class="book-info"><div class="book-title">Nenhum livro com problemas encontrado</div></div></div>';
+                    problemBooksList.innerHTML = '<div class="book-item"><div class="book-info"><div class="book-title">No books with problems found</div></div></div>';
                 }
             } catch (error) {
                 console.error('Error loading problem books:', error);
-                document.getElementById('problemBooks').innerHTML = '<div class="book-item"><div class="book-info"><div class="book-title">Erro ao carregar livros com problemas</div></div></div>';
+                document.getElementById('problemBooks').innerHTML = '<div class="book-item"><div class="book-info"><div class="book-title">Error loading books com problemas</div></div></div>';
             }
         }
 
@@ -802,7 +802,7 @@
             ws.onopen = () => {
                 console.log('WebSocket connected');
                 document.getElementById('statusDot').className = 'status-dot connected';
-                document.getElementById('statusText').textContent = 'Conectado';
+                document.getElementById('statusText').textContent = 'Connected';
             };
 
             ws.onmessage = (event) => {
@@ -817,7 +817,7 @@
             ws.onclose = () => {
                 console.log('WebSocket disconnected');
                 document.getElementById('statusDot').className = 'status-dot disconnected';
-                document.getElementById('statusText').textContent = 'Desconectado - Reconectando...';
+                document.getElementById('statusText').textContent = 'Disconnected - Reconnecting...';
                 
                 // Attempt to reconnect after 5 seconds
                 setTimeout(connectWebSocket, 5000);
@@ -826,7 +826,7 @@
             ws.onerror = (error) => {
                 console.error('WebSocket error:', error);
                 document.getElementById('statusDot').className = 'status-dot disconnected';
-                document.getElementById('statusText').textContent = 'Erro de conexão';
+                document.getElementById('statusText').textContent = 'Connection error';
             };
         }
 

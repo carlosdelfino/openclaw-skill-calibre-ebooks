@@ -44,7 +44,7 @@ def log_event(level: str, message: str, **params):
     }
     emoji = emoji_map.get(level, 'ℹ️')
     
-    # Captura automaticamente arquivo, função e linha
+    # Automatically captures file, function, and line
     frame = inspect.currentframe().f_back
     file = inspect.getfile(frame)
     func = inspect.getframeinfo(frame).function

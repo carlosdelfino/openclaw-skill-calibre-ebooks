@@ -362,12 +362,12 @@ class EmbeddingService:
 
         section_title = result.get("section_title")
         if section_title:
-            location_parts.append(f"secao/capitulo: {section_title}")
+            location_parts.append(f"section/chapter: {section_title}")
 
         location = (
             "; ".join(location_parts)
             if location_parts
-            else "localizacao nao informada"
+            else "location not provided"
         )
         title = result.get("title") or f"book_id {result.get('book_id')}"
         author = result.get("author")

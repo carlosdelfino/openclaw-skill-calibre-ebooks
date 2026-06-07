@@ -1,8 +1,8 @@
 ![visitors](https://visitor-badge.laobi.icu/badge?page_id=carlosdelfino.openclaw-skill-calibre-ebooks)
 [![License: CC BY-SA 4.0](https://img.shields.io/badge/License-CC_BY--SA_4.0-blue.svg)](https://creativecommons.org/licenses/by-sa/4.0/)
-![Language: Portuguese](https://img.shields.io/badge/Language-Portuguese-brightgreen.svg)
+![Language: English](https://img.shields.io/badge/Language-English-brightgreen.svg)
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
-![Status](https://img.shields.io/badge/Status-Desenvolvimento-brightgreen)
+![Status](https://img.shields.io/badge/Status-Development-brightgreen)
 ![Repository Size](https://img.shields.io/github/repo-size/carlosdelfino/openclaw-skill-calibre-ebooks)
 ![Last Commit](https://img.shields.io/github/last-commit/carlosdelfino/openclaw-skill-calibre-ebooks)
 
@@ -31,7 +31,7 @@ Use the bundled Python API client:
 ```bash
 python3 skills/calibre-ebooks/scripts/books_api_client.py docs
 python3 skills/calibre-ebooks/scripts/books_api_client.py paths
-python3 skills/calibre-ebooks/scripts/books_api_client.py search "termo" --limit 10
+python3 skills/calibre-ebooks/scripts/books_api_client.py search "term" --limit 10
 python3 skills/calibre-ebooks/scripts/books_api_client.py book 123
 python3 skills/calibre-ebooks/scripts/books_api_client.py request GET /books --query q=python
 ```
@@ -40,57 +40,57 @@ See `SKILL.md` for the full workflow. Local Python scripts are helpers for
 direct Calibre metadata queries and RAG indexing when the API is unavailable or
 does not cover the requested local-library operation.
 
-## Clonando o Projeto
+## Cloning the Project
 
-Para clonar este repositório, execute:
+To clone this repository, run:
 
 ```bash
 git clone git@github.com:carlosdelfino/openclaw-skill-calibre-ebooks.git
 cd openclaw-skill-calibre-ebooks
 ```
 
-## Como Colaborar
+## How to Contribute
 
-Contribuições são bem-vindas! Para colaborar com a melhoria deste projeto:
+Contributions are welcome! To help improve this project:
 
-1. **Faça um fork** do repositório no GitHub
+1. **Fork** the repository on GitHub
 
-2. **Crie uma branch** para sua feature ou correção:
-
-   ```bash
-   git checkout -b feature/nova-feature
-   ```
-
-3. **Faça suas alterações** e commit com mensagens claras
-
-4. **Push para sua branch**:
+2. **Create a branch** for your feature or fix:
 
    ```bash
-   git push origin feature/nova-feature
+   git checkout -b feature/new-feature
    ```
 
-5. **Abra um Pull Request** no GitHub descrevendo suas alterações
+3. **Make your changes** and commit with clear messages
 
-### Diretrizes de Contribuição
+4. **Push to your branch**:
 
-- Mantenha o código limpo e bem documentado
-- Siga os padrões de código existentes
-- Teste suas alterações antes de submeter
-- Adicione documentação para novas funcionalidades
-- Respeite o estilo de formatação do projeto
+   ```bash
+   git push origin feature/new-feature
+   ```
+
+5. **Open a Pull Request** on GitHub describing your changes
+
+### Contribution Guidelines
+
+- Keep the code clean and well documented
+- Follow the existing code standards
+- Test your changes before submitting
+- Add documentation for new features
+- Respect the project formatting style
 
 <p align="center">
   <img src="https://capsule-render.vercel.app/api?type=waving&color=0:10b981,50:1a56db,100:0f172a&height=120&section=footer" width="100%" alt="Footer"/>
 </p>
 
 ---
-**Resumo:** OpenClaw skill para gerenciamento de biblioteca Calibre local, usando API local e scripts Python.
-**Data de Criação:** 2025-05-30
-**Autor:** Rapport GenerAtiva
-**Versão:** 0.0.10
-**Última Atualização:** 2025-05-31
-**Atualizado por:** Carlos Delfino
-**Histórico de Alterações:**
-- 2025-05-31 - Criado por Rapport GenerAtiva - Versão 0.0.10
-- 2025-05-30 - Atualizado por Carlos Delfino - Aplicação das regras de documentação - Versão 0.0.6
-- 2025-05-30 - Criado por Rapport GenerAtiva - Versão 0.0.6
+**Summary:** OpenClaw skill for managing a local Calibre library using a local API and Python scripts.
+**Creation Date:** 2025-05-30
+**Author:** Rapport GenerAtiva
+**Version:** 0.0.10
+**Last Update:** 2025-05-31
+**Updated by:** Carlos Delfino
+**Changelog:**
+- 2025-05-31 - Created by Rapport GenerAtiva - Version 0.0.10
+- 2025-05-30 - Updated by Carlos Delfino - Applied documentation rules - Version 0.0.6
+- 2025-05-30 - Created by Rapport GenerAtiva - Version 0.0.6

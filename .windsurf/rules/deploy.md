@@ -1,6 +1,5 @@
 ---
-trigger: model_decision
-description: Quando for solicitado gerar novo release, publush ou commit
+description: When a new release, publish, or commit is requested
 ---
-
-Sempre que for solicitado para gerar um novo release final, execute o comando clawhub para envio do skill para par ao repositório público.
+Whenever a final release is requested, run the `clawhub` command to publish the
+skill to the public repository.

@@ -1,70 +1,40 @@
 ---
-description: Busca contextual na base de documentos com links clicáveis para PDFs
+description: Search indexed documents and return PDF-aware results
 ---
 
-# Workflow de Busca Contextual RAG com PDF Links
+# RAG PDF Search Workflow
 
-Este workflow permite realizar buscas inteligentes na sua base de documentos e abrir os PDFs diretamente na página encontrada.
+This workflow searches the indexed document base and returns results with PDF
+location context whenever available.
 
-## Uso
+## Usage
 
-Digite `/rag-search-pdf` seguido do termo que deseja pesquisar.
+Type `/rag-search-pdf` followed by the search term.
 
-## Exemplos
+## Examples
 
-- `/rag-search-pdf redes neurais convolucionais`
-- `/rag-search-pdf machine learning algorithms`
-- `/rag-search-pdf python programming`
-- `/rag-search-pdf data science`
+- `/rag-search-pdf "attention mechanism"`
+- `/rag-search-pdf "gradient descent"`
+- `/rag-search-pdf "software architecture"`
 
-## O que acontece
+## What Happens
 
-1. **Busca Semântica**: Encontra documentos relevantes usando embeddings
-2. **Links Clicáveis**: Gera links diretos para os PDFs na página específica
-3. **Abertura Automática**: Oferece opção para abrir o PDF no visualizador padrão
-4. **Contexto Rico**: Mostra trechos relevantes com alta similaridade
+1. The query is converted into an embedding.
+2. Semantic search finds relevant chunks.
+3. Results are ranked by similarity.
+4. PDF page, document, and excerpt details are returned when available.
 
-## Resultados
+## Result Shape
 
-Cada resultado inclui:
-- 📄 Nome do documento
-- 📖 Página específica com link clicável
-- 🎯 Trecho relevante
-- 📊 Pontuação de similaridade
-- 🔗 Link direto: `file://[caminho]#page=[numero]`
-- 🚀 Botão para abrir PDF automaticamente
+- **Document:** source document name.
+- **Page:** page number when available.
+- **Excerpt:** relevant matched text.
+- **Score:** semantic similarity score.
+- **PDF link:** link or action to open the PDF when supported.
 
-## Funcionalidades Especiais
+## Related Commands
 
-### Links Clicáveis
-- Clique nos links `file://` para abrir o PDF diretamente na página
-- Funciona com a maioria dos visualizadores de PDF
-- Links são absolutos e funcionam em qualquer sistema
-
-### Abertura Automática
-- Use a ferramenta `rag_open_pdf` para abrir automaticamente
-- Suporta Windows, macOS e Linux
-- Abre no visualizador padrão do sistema
-
-### Exemplo de Uso Avançado
-
-```
-Busque por "transformer architecture" e me mostre os 3 melhores resultados com links para PDF
-```
-
-## Dicas
-
-- **Termos Específicos**: Use linguagem técnica para melhores resultados
-- **Combinar Conceitos**: `deep learning convolutional networks`
-- **Navegação Rápida**: Clique nos links para ir direto ao conteúdo
-- **Visualização**: Os PDFs abrem na página exata do conteúdo encontrado
-
-## Comandos Relacionados
-
-- `/rag-search-pdf` - Busca com links para PDFs
-- `rag_open_pdf` - Abre PDF automaticamente
-- `rag_list_books` - Lista todos os livros disponíveis
-
-## Configuração
-
-Este workflow usa o MCP server `rag-local` com suporte aprimorado para PDFs. Certifique-se de que os PDFs originais estejam acessíveis nos caminhos registrados no banco de dados.
+- `/rag-search` - general contextual search.
+- `/rag-find-page` - find pages by quoted text.
+- `rag_open_pdf` - open a PDF directly when supported.
+- `rag_list_books` - list indexed books.

@@ -1,12 +1,17 @@
 ---
-trigger: model_decision
-description: python, venv, .venv e pip desenvolvimento de scripts
+trigger: always_on
 ---
+# Python Rule
 
-Sempre use a pasta venv no raiz do projeto.
+Use clear, maintainable Python with explicit dependencies and predictable
+runtime behavior.
 
-Nunca instale no sistema operacional algum pacote para uso nos scripts.
+Rules:
 
-requirements.txt deve ficar na past scripts
-
-Cada script python deve ter seu lançador com o mesmo nome, para bash, bat e ps1.
+- Prefer type hints for public functions and service boundaries.
+- Keep functions small enough to test.
+- Use structured logging instead of ad hoc prints in application code.
+- Validate external input before use.
+- Handle file paths with `pathlib` where practical.
+- Keep secrets in environment variables, never in source code.
+- Run targeted tests after code changes.
