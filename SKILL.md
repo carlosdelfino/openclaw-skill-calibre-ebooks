@@ -111,8 +111,12 @@ Commands:
 - `openapi` - fetch and print the current OpenAPI JSON document.
 - `paths` - summarize available API paths with methods, operation IDs, path
   parameters, and query parameters.
-- `search QUERY [--limit N]` - search books using the best matching GET endpoint
-  discovered from OpenAPI.
+- `search QUERY [--limit N]` - flexible search through the Books API. The
+  server searches the catalog first and, when no catalog result is found, may
+  fall back to semantic/RAG content results.
+- `semantic QUERY [--limit N] [--threshold VALUE]` - search embedded book
+  content through the Books API semantic/RAG endpoint only. Use this for
+  explicit RAG/content testing, not for ordinary book discovery.
 - `book BOOK_ID` - fetch book details by ID using the best matching detail
   endpoint discovered from OpenAPI.
 - `request METHOD PATH [--query KEY=VALUE ...] [--body JSON] [--output PATH]
@@ -151,10 +155,16 @@ List available API paths with methods and parameters:
 python3 skills/calibre-ebooks/scripts/books_api_client.py paths
 ```
 
-Search using endpoint discovery from OpenAPI:
+Flexible catalog-first search, with semantic fallback handled by the server:
 
 ```bash
 python3 skills/calibre-ebooks/scripts/books_api_client.py search "termo ou titulo" --limit 10
+```
+
+Search embedded/RAG content through the Books API:
+
+```bash
+python3 skills/calibre-ebooks/scripts/books_api_client.py semantic "pergunta ou tema" --limit 10 --threshold 0.3
 ```
 
 Get book details by ID using endpoint discovery from OpenAPI:
@@ -480,31 +490,36 @@ catalog/title search.
 
 1. Search the Books API for the title or quoted phrase:
    `python3 skills/calibre-ebooks/scripts/books_api_client.py search "provided title" --limit 10`
-2. If title/metadata search still does not find a clear match, search
-   semantically in the available RAG index before saying the book was not found:
+2. The Books API search endpoint handles catalog-first lookup and semantic
+   fallback. Inspect returned `result_type`: `catalog` means confirmed local
+   book metadata, while `semantic` means a RAG/content match and should be
+   presented as a related excerpt, not as an exact title match unless metadata
+   confirms it.
+3. Use the local RAG script only if the API semantic endpoint is unavailable or
+   the task explicitly requires local RAG maintenance:
    `python3 skills/calibre-ebooks/calibre-openclaw-server/scripts/document_semantic_rag.py --search "provided title" --json`
-3. Use RAG results to identify likely related books by document/book id, page,
+4. Use RAG results to identify likely related books by document/book id, page,
    similarity, and excerpt. Present them as probable semantic matches, not exact
    title matches, unless metadata confirms the title.
-4. Only say that nothing was found after both catalog/title search and RAG
+5. Only say that nothing was found after both catalog/title search and RAG
    semantic search fail or the RAG base is unavailable. If RAG is unavailable,
    state that the catalog search was tried and the semantic RAG fallback could
    not be used.
-5. When the book is not found, append a Markdown entry to
+6. When the book is not found, append a Markdown entry to
    `memory/calibre-missing-books.md` so Carlos can research it later. Include
    date, requested title/name, author(s) if the user supplied them, requester
    context if useful, and a short note of which searches failed.
-6. After recording the missing book, suggest up to three alternatives from the
+7. After recording the missing book, suggest up to three alternatives from the
    existing library when possible. Infer category, style, genre, author,
    subject, and theme from the request and from any RAG snippets returned. Search
    the catalog/RAG again with those terms, then recommend books that are close in
    category, style, or theme. Clearly label them as alternatives, not as the
    requested book.
-7. If the user wants to research the missing title outside the local library,
+8. If the user wants to research the missing title outside the local library,
    suggest consulting Google Books or Amazon Books as public catalog/store pages
    for metadata, editions, publisher information, and lawful availability. Do
    not provide or imply unauthorized download sources.
-8. Keep the visible reply open-ended and inviting: briefly introduce what the
+9. Keep the visible reply open-ended and inviting: briefly introduce what the
    requested book or subject is about when you can verify it, connect it to a
    useful theme, then invite the reader to ask for similar books, context,
    author background, or a reading route.
@@ -656,10 +671,11 @@ Recommended response shape for random suggestions:
 - If the API is unreachable, keep the URL, port, path, timeout, connection
   error, and command output internal. Use local fallback when available, then
   answer in user-facing language without exposing operational details.
-- For title lookups with no clear catalog result, search the RAG base
-  semantically before saying the book was not found. If RAG is unavailable,
-  do not expose dependency, path, or service details; just say the local
-  catalog did not confirm a match.
+- For title lookups, use `books_api_client.py search`; the server handles
+  catalog-first search and semantic fallback. Treat `result_type=semantic` as a
+  related excerpt/match, not as confirmed availability of the requested exact
+  title. Use `books_api_client.py semantic` or `document_semantic_rag.py --search`
+  only for explicit RAG/content testing or local RAG maintenance.
 - When a requested book is still not found, write it to
   `memory/calibre-missing-books.md` before replying. Keep entries append-only
   unless Carlos asks to organize the file.

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from app.models import SearchRequest, ContentSearchRequest, SearchResult, BookResponse
 from app.services.book_service import book_service
@@ -9,15 +9,46 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/search", tags=["search"])
 
 
-@router.get("", response_model=list[BookResponse])
-async def search_books(query: str, limit: int = 50):
-    """Search books by title, author, or metadata."""
+@router.get("")
+async def search_books(
+    query: str,
+    limit: int = Query(default=50, ge=1, le=100),
+    semantic_fallback: bool = Query(
+        default=True,
+        description="When catalog search returns no results, search embedded content.",
+    ),
+    semantic_threshold: float = Query(default=0.3, ge=0.0, le=1.0),
+):
+    """Search catalog first, then embedded content when the catalog has no hit."""
     try:
         if not query or len(query.strip()) == 0:
             raise HTTPException(status_code=400, detail="Query cannot be empty")
         
         books = book_service.search_books(query, limit)
-        return [BookResponse(**book) for book in books]
+        if books:
+            return [
+                {
+                    "result_type": "catalog",
+                    **BookResponse(**book).model_dump(mode="json"),
+                }
+                for book in books
+            ]
+
+        if not semantic_fallback:
+            return []
+
+        semantic_results = embedding_service.search_similar_content(
+            query=query,
+            limit=min(limit, 50),
+            threshold=semantic_threshold,
+        )
+        return [
+            {
+                "result_type": "semantic",
+                **SearchResult(**result).model_dump(mode="json"),
+            }
+            for result in semantic_results
+        ]
     except HTTPException:
         raise
     except Exception as e:

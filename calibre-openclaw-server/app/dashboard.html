@@ -544,7 +544,24 @@
 
         <div class="grid">
             <div class="card full-width">
-                <div class="card-title">RAG Test Search</div>
+                <div class="card-title">Catalog Search</div>
+                <form class="search-form" id="catalogSearchForm">
+                    <div class="search-field grow">
+                        <label for="catalogQuery">Query</label>
+                        <input type="text" id="catalogQuery" placeholder="Search title, author, tags, publisher, or topic..." autocomplete="off" required>
+                    </div>
+                    <div class="search-field">
+                        <label for="catalogLimit">Results (1-100)</label>
+                        <input type="number" id="catalogLimit" value="20" min="1" max="100" step="1">
+                    </div>
+                    <button type="submit" class="search-button" id="catalogSearchButton">Search Catalog</button>
+                </form>
+                <div class="search-status" id="catalogSearchStatus"></div>
+                <div class="search-results" id="catalogSearchResults"></div>
+            </div>
+
+            <div class="card full-width">
+                <div class="card-title">RAG Semantic Search</div>
                 <form class="search-form" id="ragSearchForm">
                     <div class="search-field grow">
                         <label for="ragQuery">Query</label>
@@ -558,7 +575,7 @@
                         <label for="ragThreshold">Threshold (0-1)</label>
                         <input type="number" id="ragThreshold" value="0.3" min="0" max="1" step="0.05">
                     </div>
-                    <button type="submit" class="search-button" id="ragSearchButton">Search</button>
+                    <button type="submit" class="search-button" id="ragSearchButton">Search RAG</button>
                 </form>
                 <div class="search-status" id="ragSearchStatus"></div>
                 <div class="search-results" id="ragSearchResults"></div>
@@ -996,6 +1013,104 @@
                 .replace(/'/g, '&#39;');
         }
 
+        async function runCatalogSearch(event) {
+            if (event) event.preventDefault();
+
+            const statusEl = document.getElementById('catalogSearchStatus');
+            const resultsEl = document.getElementById('catalogSearchResults');
+            const button = document.getElementById('catalogSearchButton');
+
+            const query = (document.getElementById('catalogQuery').value || '').trim();
+            if (!query) {
+                statusEl.className = 'search-status error';
+                statusEl.textContent = 'Please enter a query.';
+                return;
+            }
+
+            let limit = parseInt(document.getElementById('catalogLimit').value, 10);
+            if (!Number.isFinite(limit)) limit = 20;
+            limit = Math.min(100, Math.max(1, limit));
+
+            button.disabled = true;
+            statusEl.className = 'search-status';
+            statusEl.textContent = 'Searching catalog...';
+            resultsEl.innerHTML = '';
+
+            try {
+                const params = new URLSearchParams({ query, limit: String(limit) });
+                const response = await fetch(`/api/search?${params.toString()}`, authFetchOptions());
+
+                if (!response.ok) {
+                    let detail = `HTTP ${response.status}`;
+                    try {
+                        const err = await response.json();
+                        if (err && err.detail) detail = err.detail;
+                    } catch (e) { /* keep status-based detail */ }
+                    throw new Error(detail);
+                }
+
+                const results = await response.json();
+                if (!Array.isArray(results) || results.length === 0) {
+                    statusEl.className = 'search-status';
+                    statusEl.textContent = `No catalog results for "${query}".`;
+                    return;
+                }
+
+                const hasSemanticFallback = results.some(item => item.result_type === 'semantic');
+                statusEl.className = 'search-status';
+                statusEl.textContent = hasSemanticFallback
+                    ? `${results.length} semantic fallback result(s) for "${query}".`
+                    : `${results.length} catalog result(s) for "${query}".`;
+
+                resultsEl.innerHTML = results.map(item => {
+                    if (item.result_type === 'semantic') {
+                        const similarity = typeof item.similarity === 'number'
+                            ? `${(item.similarity * 100).toFixed(1)}%`
+                            : '--';
+                        const titleLine = item.author
+                            ? `${item.title || 'Untitled'} · ${item.author}`
+                            : (item.title || `book_id ${item.book_id}`);
+                        return `
+                            <div class="result-item">
+                                <div class="result-head">
+                                    <span class="result-title">${escapeHtml(titleLine)}</span>
+                                    <span class="result-similarity">${escapeHtml(similarity)}</span>
+                                </div>
+                                ${item.citation ? `<div class="result-citation">${escapeHtml(item.citation)}</div>` : ''}
+                                <div class="result-content">${escapeHtml(item.content || '')}</div>
+                            </div>
+                        `;
+                    }
+
+                    const book = item;
+                    const metadata = book.metadata || {};
+                    const formats = Array.isArray(metadata.available_formats)
+                        ? metadata.available_formats.join(', ')
+                        : (metadata.selected_format || book.file_type || '--');
+                    const author = book.author || 'Unknown author';
+                    const publisher = Array.isArray(metadata.publishers) && metadata.publishers.length
+                        ? metadata.publishers.join(', ')
+                        : '';
+                    return `
+                        <div class="result-item">
+                            <div class="result-head">
+                                <span class="result-title">${escapeHtml(book.title || 'Untitled')}</span>
+                                <span class="result-similarity">ID ${escapeHtml(book.id)}</span>
+                            </div>
+                            <div class="result-citation">${escapeHtml(author)}${publisher ? ` · ${escapeHtml(publisher)}` : ''}</div>
+                            <div class="result-content">Calibre ID: ${escapeHtml(book.calibre_id || '--')} · Formats: ${escapeHtml(formats)}</div>
+                        </div>
+                    `;
+                }).join('');
+            } catch (error) {
+                console.error('Catalog search error:', error);
+                statusEl.className = 'search-status error';
+                statusEl.textContent = `Search failed: ${error.message}`;
+            } finally {
+                button.disabled = false;
+            }
+        }
+
         async function runRagSearch(event) {
             if (event) event.preventDefault();
 
@@ -1137,6 +1252,7 @@
             connectWebSocket();
             loadRecentBooks();
             loadProblemBooks();
+            document.getElementById('catalogSearchForm').addEventListener('submit', runCatalogSearch);
             document.getElementById('ragSearchForm').addEventListener('submit', runRagSearch);
         });
     </script>

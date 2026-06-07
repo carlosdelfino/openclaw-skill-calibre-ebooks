@@ -325,6 +325,23 @@ def command_search(base: str, openapi: dict[str, Any], query: str, limit: str | 
     raise RuntimeError(f"No usable search endpoint succeeded. Candidates:\n{json.dumps(attempted, ensure_ascii=False, indent=2)}")
 
 
+def command_semantic_search(base: str, query: str, limit: int, threshold: float) -> dict[str, Any]:
+    body = json.dumps(
+        {
+            "query": query,
+            "limit": max(1, min(int(limit), 50)),
+            "threshold": max(0.0, min(float(threshold), 1.0)),
+        },
+        ensure_ascii=False,
+    )
+    data = request_json(api_url(base, "/api/search/content"), method="POST", body=body)
+    return {
+        "endpoint": {"method": "POST", "path": "/api/search/content"},
+        "params": json.loads(body),
+        "data": data,
+    }
+
+
 def command_book(base: str, openapi: dict[str, Any], book_id: str) -> dict[str, Any]:
     attempted = []
     for candidate in find_book_candidates(openapi):
@@ -368,6 +385,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  books_api_client.py docs\n"
             "  books_api_client.py paths\n"
             "  books_api_client.py search \"python\" --limit 10\n"
+            "  books_api_client.py semantic \"ethics and virtue\" --limit 5 --threshold 0.25\n"
             "  books_api_client.py book 123\n"
             "  books_api_client.py request GET /api/books --query limit=100\n"
             "  books_api_client.py request GET /api/books/123/file --output-dir tmp/downloads"
@@ -396,6 +414,26 @@ def build_parser() -> argparse.ArgumentParser:
         "--limit",
         metavar="N",
         help="Maximum number of results when the discovered endpoint exposes a supported limit parameter.",
+    )
+
+    semantic = sub.add_parser(
+        "semantic",
+        help="Search embedded book content through the Books API semantic/RAG endpoint.",
+    )
+    semantic.add_argument("query", help="Question, topic, or phrase to search in embedded book content.")
+    semantic.add_argument(
+        "--limit",
+        metavar="N",
+        type=int,
+        default=10,
+        help="Maximum number of semantic results, clamped to 1-50.",
+    )
+    semantic.add_argument(
+        "--threshold",
+        metavar="VALUE",
+        type=float,
+        default=0.3,
+        help="Minimum similarity threshold, clamped to 0.0-1.0.",
     )
 
     book = sub.add_parser(
@@ -466,6 +504,8 @@ def main(argv: list[str]) -> int:
         print_result(summarize_paths(get_openapi(base)))
     elif args.command == "search":
         print_result(command_search(base, get_openapi(base), args.query, args.limit))
+    elif args.command == "semantic":
+        print_result(command_semantic_search(base, args.query, args.limit, args.threshold))
     elif args.command == "book":
         print_result(command_book(base, get_openapi(base), args.book_id))
     elif args.command == "request":
