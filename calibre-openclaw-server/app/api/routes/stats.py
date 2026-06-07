@@ -148,7 +148,19 @@ async def get_database_stats() -> Dict[str, Any]:
                 },
                 "embeddings": {
                     "total_stored": total_embeddings,
-                    "utilization_rate": round((chunks_with_embeddings / total_chunks * 100) if total_chunks > 0 else 0, 2)
+                    "utilization_rate": round((chunks_with_embeddings / total_chunks * 100) if total_chunks > 0 else 0, 2),
+                    # Average over INDEXED books only. Dividing total chunks by
+                    # the whole catalog (total_books) is misleading because most
+                    # titles are not embedded yet.
+                    "indexed_books": books_with_embeddings,
+                    "avg_chunks_per_indexed_book": round(
+                        (total_chunks / books_with_embeddings) if books_with_embeddings > 0 else 0,
+                        2,
+                    ),
+                    "avg_chunks_per_catalog_book": round(
+                        (total_chunks / total_books) if total_books > 0 else 0,
+                        2,
+                    ),
                 },
                 "processing_queue": {
                     "pending": pending_queue,
@@ -310,6 +322,56 @@ async def get_library_summary() -> Dict[str, Any]:
             }
     except Exception as e:
         logger.error(f"Error getting library summary stats: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/content-insights")
+async def get_content_insights(
+    top_words: int = 25,
+    top_concepts: int = 15,
+    sample_size: int = 6000,
+    min_word_length: int = 4,
+    language: str = "simple",
+) -> Dict[str, Any]:
+    """Diagnostic insights over embedded content.
+
+    Combines the per-indexed-book chunk distribution with the most relevant
+    words and most frequently cited concepts (detected section/chapter titles).
+    Term frequencies are sampled to stay cheap on large libraries.
+    """
+    try:
+        distribution = postgres_db.get_embedding_distribution()
+        concepts = postgres_db.get_top_concepts(limit=top_concepts)
+        terms = postgres_db.get_top_terms(
+            limit=top_words,
+            sample_size=sample_size,
+            min_word_length=min_word_length,
+            regconfig=language,
+        )
+        logger.info(
+            "Content insights computed: indexed_books=%s, avg_chunks=%s, "
+            "top_words=%s, top_concepts=%s, sample_size=%s",
+            distribution.get("indexed_books"),
+            distribution.get("avg_chunks_per_indexed_book"),
+            len(terms),
+            len(concepts),
+            sample_size,
+        )
+        return {
+            "distribution": distribution,
+            "top_relevant_words": terms,
+            "top_concepts": concepts,
+            "params": {
+                "top_words": top_words,
+                "top_concepts": top_concepts,
+                "sample_size": sample_size,
+                "min_word_length": min_word_length,
+                "language": language,
+            },
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"Error computing content insights: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

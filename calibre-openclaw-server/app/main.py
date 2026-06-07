@@ -31,6 +31,7 @@ async def lifespan(app: FastAPI):
         """Run book sync in background thread with periodic checks."""
         from pathlib import Path
         import asyncio
+        from app.database.calibre_db import CalibreMetadataDBUnavailable, diagnose_calibre_db
         from app.services.embedding_service import embedding_service
         try:
             if settings.RAG_RECONCILE_ON_START:
@@ -43,9 +44,10 @@ async def lifespan(app: FastAPI):
                     logger.error(f"Embedding version reconciliation failed: {e}")
 
             calibre_db_path = Path(settings.CALIBRE_DB_PATH)
+            diagnostic = diagnose_calibre_db()
             
             # Initial sync
-            if calibre_db_path.exists():
+            if diagnostic["status"] == "available":
                 current_mtime = calibre_db_path.stat().st_mtime
                 stored_mtime = postgres_db.get_calibre_db_mtime()
                 
@@ -62,21 +64,37 @@ async def lifespan(app: FastAPI):
                 else:
                     logger.info("Calibre DB is up to date - no sync needed")
             else:
-                logger.warning(f"Calibre DB not found at {settings.CALIBRE_DB_PATH}")
+                logger.warning(
+                    "Calibre metadata.db unavailable at startup: %s",
+                    diagnostic,
+                )
             
             # Periodic sync check every 60 seconds
             while True:
                 await asyncio.sleep(60)
-                
-                if calibre_db_path.exists():
+
+                diagnostic = diagnose_calibre_db()
+                if diagnostic["status"] != "available":
+                    logger.warning(
+                        "Calibre metadata.db unavailable during periodic sync: %s",
+                        diagnostic,
+                    )
+                    continue
+
+                try:
                     current_mtime = calibre_db_path.stat().st_mtime
                     stored_mtime = postgres_db.get_calibre_db_mtime()
                     
-                    if current_mtime > stored_mtime:
+                    if stored_mtime is None or current_mtime > stored_mtime:
                         logger.info(f"Calibre DB updated detected (old: {stored_mtime}, new: {current_mtime}) - syncing")
                         synced_count = await asyncio.to_thread(book_service.sync_books_from_calibre)
                         postgres_db.set_calibre_db_mtime(current_mtime)
                         logger.info(f"Periodic sync completed: {synced_count} books")
+                except CalibreMetadataDBUnavailable as e:
+                    logger.warning(
+                        "Calibre metadata.db became unavailable during sync: %s",
+                        e.diagnostic,
+                    )
                     
         except asyncio.CancelledError:
             logger.info("Background sync cancelled during shutdown")
@@ -338,9 +356,20 @@ async def api_info():
 async def health_check():
     """Health check endpoint."""
     try:
+        from app.database.calibre_db import diagnose_calibre_db
         # Check database connection
         postgres_db.get_all_books(limit=1)
-        return {"status": "healthy", "database": "connected"}
+        calibre_diagnostic = diagnose_calibre_db()
+        status_value = "healthy" if calibre_diagnostic["status"] == "available" else "degraded"
+        status_code = 200 if status_value == "healthy" else 503
+        return JSONResponse(
+            status_code=status_code,
+            content={
+                "status": status_value,
+                "database": "connected",
+                "calibre_metadata_db": calibre_diagnostic,
+            },
+        )
     except Exception as e:
         logger.error(f"Health check failed: {e}")
         return JSONResponse(

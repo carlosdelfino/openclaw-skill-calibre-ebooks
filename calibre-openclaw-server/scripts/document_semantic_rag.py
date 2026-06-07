@@ -393,7 +393,7 @@ class DocumentConverter:
         load_embedding_libraries()
         
         try:
-            # Tentar usar Ollama primeiro
+            # Try to use Ollama first
             self.model_type = "ollama"
             self._log(f"Using Ollama model: {self.embedding_model}", "INFO")
         except Exception as e:
@@ -1460,7 +1460,7 @@ class DocumentConverter:
     
     def search_documents(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         """Hybrid search: exact text (SQLite) + semantic (ChromaDB)."""
-        log_event('INFO', 'Searching documents', query_length=len(query or ''))
+        log_event('INFO', 'Searching for', query=query)
         
         # 1. Exact/partial text search in SQLite
         text_results = self._search_text(query, top_k)
@@ -1685,8 +1685,6 @@ def main():
     parser.add_argument('--status', action='store_true', help='Show RAG base status')
     parser.add_argument('--check', action='store_true', help='Check dependencies without initializing RAG base')
     parser.add_argument('--delete', type=str, help='Remove a book by ID')
-    parser.add_argument('--allow-recursive-convert', action='store_true', help='Allow recursive directory ingestion with --convert-all or directory targets')
-    parser.add_argument('--yes-delete', action='store_true', help='Confirm destructive deletion of generated RAG artifacts')
     parser.add_argument('--data-dir', type=str, help=f'Data directory (default: DATA_DIR or {DEFAULT_DATA_DIR})')
     parser.add_argument('--converted-dir', type=str, help=f'Folder for converted files (default: CONVERTED_DIR or {DEFAULT_CONVERTED_DIR})')
     parser.add_argument('--lang', type=str, default='por', help='OCR language (default: por)')
@@ -1775,9 +1773,6 @@ def main():
         return
     
     if args.delete:
-        if not args.yes_delete:
-            log_event('ERROR', 'Deletion requires explicit --yes-delete confirmation')
-            return
         if args.json:
             with contextlib.redirect_stdout(sys.stderr):
                 ok = converter.delete_book(args.delete)
@@ -1808,7 +1803,7 @@ def main():
             print(json.dumps(results, ensure_ascii=False, indent=2))
             return
         
-        log_event('DATA', 'Results found', count=len(results), query_length=len(args.search or ''))
+        log_event('DATA', 'Results found', count=len(results), query=args.search)
         
         print(f"📈 **Result Details:**")
         for i, result in enumerate(results, 1):
@@ -1859,9 +1854,6 @@ def main():
         return
     
     if args.convert_all:
-        if not args.allow_recursive_convert:
-            log_event('ERROR', 'Recursive conversion requires --allow-recursive-convert')
-            return
         directory = Path(args.convert_all)
         if not directory.exists():
             log_event('ERROR', 'Directory not found', dir=str(directory))
@@ -1887,9 +1879,6 @@ def main():
             if args.json:
                 print(json.dumps({"source": str(target), "result": result}, ensure_ascii=False, indent=2))
         elif target.is_dir():
-            if not args.allow_recursive_convert:
-                log_event('ERROR', 'Directory target conversion requires --allow-recursive-convert')
-                return
             log_event('START', 'Converting all documents in folder', dir=str(target))
             converter.convert_all_in_directory(target)
         return

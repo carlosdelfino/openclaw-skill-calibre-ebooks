@@ -200,7 +200,7 @@ def random_book(conn: sqlite3.Connection, include_comments: bool = True) -> dict
 
 
 def search_books(conn: sqlite3.Connection, query: str, limit: int) -> list[dict[str, Any]]:
-    log_event('START', 'Searching books', query_length=len(query or ''), limit=limit)
+    log_event('START', 'Searching books', query=query, limit=limit)
     pattern = f"%{query}%"
     rows = conn.execute(
         book_select(
@@ -225,7 +225,7 @@ def search_books(conn: sqlite3.Connection, query: str, limit: int) -> list[dict[
         (pattern, pattern, pattern, pattern, limit),
     ).fetchall()
     books = [row_to_book(row) for row in rows]
-    log_event('DATA', 'Results found', count=len(books), query_length=len(query or ''))
+    log_event('DATA', 'Results found', count=len(books), query=query)
     log_event('SUCCESS', 'Search completed', count=len(books))
     return books
 

@@ -31,14 +31,32 @@ if [ ! -d "$VENV_DIR" ]; then
     python3 -m venv "$VENV_DIR"
     if [ $? -eq 0 ]; then
         echo -e "${GREEN}✓ Virtual environment created at $VENV_DIR${NC}"
+        # Upgrade pip to avoid PyPI JSON decode bug present in older pip versions
+        echo "Upgrading pip in new virtual environment..."
+        "$VENV_DIR/bin/python" -m pip install --upgrade pip --no-cache-dir 2>/dev/null
+        if [ $? -ne 0 ]; then
+            echo -e "${YELLOW}⚠ pip upgrade failed; continuing with the bundled pip${NC}"
+        fi
+        echo -e "${GREEN}✓ pip upgraded: $($VENV_DIR/bin/pip --version)${NC}"
     else
         echo -e "${RED}ERROR: Failed to create virtual environment${NC}"
         exit 1
     fi
 else
     echo -e "${GREEN}✓ Virtual environment found at $VENV_DIR${NC}"
+    # Check and upgrade pip if needed
     pip_version=$($VENV_PIP --version | awk '{print $2}')
-    echo -e "${GREEN}✓ pip version $pip_version${NC}"
+    pip_major=$(echo $pip_version | cut -d. -f1)
+    if [ "$pip_major" -lt 25 ]; then
+        echo -e "${YELLOW}pip version $pip_version is old, upgrading...${NC}"
+        if "$VENV_PYTHON" -m pip install --upgrade pip --no-cache-dir; then
+            echo -e "${GREEN}✓ pip upgraded: $($VENV_PIP --version)${NC}"
+        else
+            echo -e "${YELLOW}⚠ pip upgrade failed; continuing with $pip_version${NC}"
+        fi
+    else
+        echo -e "${GREEN}✓ pip version $pip_version is up to date${NC}"
+    fi
 fi
 
 # Check if .env exists in multiple locations
@@ -78,18 +96,6 @@ fi
 
 # Export the directory containing .env for the app to find it
 export ENV_DIR="$(dirname "$ENV_FILE")"
-
-env_value() {
-    local key="$1"
-    local line value
-    line="$(grep -E "^${key}=" "$ENV_FILE" | tail -n 1 || true)"
-    value="${line#*=}"
-    value="${value%\"}"
-    value="${value#\"}"
-    value="${value%\'}"
-    value="${value#\'}"
-    printf '%s' "$value"
-}
 
 # Check if requirements.txt exists
 if [ ! -f "requirements.txt" ]; then
@@ -155,8 +161,9 @@ if [ $missing_packages -gt 0 ]; then
     echo ""
     echo -e "${YELLOW}WARNING: $missing_packages required package(s) are missing${NC}"
     echo ""
-    ALLOW_RUNTIME_PIP_INSTALL="$(env_value ALLOW_RUNTIME_PIP_INSTALL)"
-    if [[ "$ALLOW_RUNTIME_PIP_INSTALL" =~ ^(1|true|TRUE|yes|YES|s|sim)$ ]]; then
+    read -p "Do you want to install missing packages now? (y/n) " -n 1 -r
+    echo ""
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
         echo "Installing packages from requirements.txt in virtual environment..."
         $VENV_PIP install -r requirements.txt
         if [ $? -eq 0 ]; then
@@ -166,8 +173,7 @@ if [ $missing_packages -gt 0 ]; then
             exit 1
         fi
     else
-        echo -e "${RED}ERROR: Cannot start server without required packages. Runtime pip install is disabled.${NC}"
-        echo "Set ALLOW_RUNTIME_PIP_INSTALL=true explicitly or install manually:"
+        echo -e "${RED}ERROR: Cannot start server without required packages${NC}"
         echo "Please install them manually:"
         echo "  $VENV_PIP install -r requirements.txt"
         exit 1

@@ -229,6 +229,39 @@ If `BOOKS_API_URL` is set, the client uses it instead of
 6. Do not search for, recommend, facilitate, or describe unauthorized sources
    for books. This skill is for the user's existing Calibre library only.
 
+## Calibre metadata.db Diagnostics
+
+Before starting a Calibre sync, when `/health` reports degraded status, or when
+the Books API returns `calibre_metadata_db_unavailable`, diagnose the configured
+`CALIBRE_DB_PATH` through:
+
+```bash
+python3 skills/calibre-ebooks/scripts/books_api_client.py request GET /api/books/calibre-db/status
+```
+
+The diagnostic response includes:
+
+- `status`: `available` or `unavailable`
+- `reason`: stable machine-readable cause such as `file_missing`,
+  `database_locked`, `not_sqlite_database`, `invalid_calibre_schema`,
+  `integrity_check_failed`, `open_failed`, or `filesystem_error`
+- `message`: human-readable technical reason
+- `agent_action`: `proceed`, `wait`, or `notify_user`
+- `calibre_db_path`: the configured path being checked
+- `details`: optional evidence such as missing tables, size, mtime, or book
+  count
+
+Agent behavior:
+
+- If `agent_action` is `proceed`, continue with the requested catalog/sync
+  operation.
+- If `agent_action` is `wait`, do not alarm the user immediately. Wait briefly
+  and retry; this usually means SQLite is temporarily locked or busy.
+- If `agent_action` is `notify_user`, treat the Calibre base as unsuitable for
+  handling until the user fixes it. In internal notes include the diagnostic
+  `reason` and `message`. In normal user-facing book replies, keep local paths
+  and raw server details private unless the user asked for technical debugging.
+
 ## Conversational Book Replies
 
 Every book question should help the group conversation continue. Treat local

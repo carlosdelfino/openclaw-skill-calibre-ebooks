@@ -36,19 +36,6 @@ print_info() {
     echo -e "ℹ $1"
 }
 
-confirm_systemd_change() {
-    local action="$1"
-    if [[ "${ASSUME_YES:-}" =~ ^(1|true|TRUE|yes|YES|s|sim)$ ]]; then
-        return 0
-    fi
-    print_warning "$action will modify systemd units under /etc/systemd/system using sudo."
-    read -r -p "Continue? Type 'yes' to proceed: " answer
-    if [[ "$answer" != "yes" ]]; then
-        print_error "Aborted"
-        exit 1
-    fi
-}
-
 env_value() {
     local key="$1"
     local file="${2:-$ENV_FILE}"
@@ -115,14 +102,28 @@ check_venv() {
         python3 -m venv "$VENV_DIR"
         if [[ $? -eq 0 ]]; then
             print_success "Virtual environment created at $VENV_DIR"
+            # Upgrade pip
+            print_info "Upgrading pip in new virtual environment..."
+            "$VENV_DIR/bin/python" -m pip install --upgrade pip --no-cache-dir 2>/dev/null
+            if [[ $? -ne 0 ]]; then
+                print_warning "pip upgrade failed; continuing with the bundled pip"
+            fi
+            print_success "pip upgraded: $($VENV_DIR/bin/pip --version)"
         else
             print_error "Failed to create virtual environment"
             exit 1
         fi
     else
         print_success "Virtual environment found at $VENV_DIR"
+        # Check and upgrade pip if needed
         pip_version=$($VENV_PIP --version | awk '{print $2}')
-        print_success "pip version $pip_version"
+        pip_major=$(echo $pip_version | cut -d. -f1)
+        if [[ "$pip_major" -lt 25 ]]; then
+            print_warning "pip version $pip_version is old, upgrading..."
+            "$VENV_PYTHON" -m pip install --upgrade pip --no-cache-dir || print_warning "pip upgrade failed; continuing with $pip_version"
+        else
+            print_success "pip version $pip_version is up to date"
+        fi
     fi
 }
 
@@ -197,21 +198,13 @@ check_packages() {
     # If packages are missing, install them
     if [[ $missing_packages -gt 0 ]]; then
         print_warning "$missing_packages required package(s) are missing"
-        ALLOW_RUNTIME_PIP_INSTALL="$(env_value ALLOW_RUNTIME_PIP_INSTALL)"
-        if [[ "$ALLOW_RUNTIME_PIP_INSTALL" =~ ^(1|true|TRUE|yes|YES|s|sim)$ ]]; then
-            print_info "Installing packages from requirements.txt..."
-            VENV_PIP="$SCRIPT_DIR/.venv/bin/pip"
-            $VENV_PIP install -r "${SCRIPT_DIR}/requirements.txt"
-            if [[ $? -eq 0 ]]; then
-                print_success "Packages installed successfully"
-            else
-                print_error "Failed to install packages"
-                exit 1
-            fi
+        print_info "Installing packages from requirements.txt..."
+        VENV_PIP="$SCRIPT_DIR/.venv/bin/pip"
+        $VENV_PIP install -r "${SCRIPT_DIR}/requirements.txt"
+        if [[ $? -eq 0 ]]; then
+            print_success "Packages installed successfully"
         else
-            print_error "Missing dependencies and runtime pip install is disabled."
-            print_info "Set ALLOW_RUNTIME_PIP_INSTALL=true explicitly or run:"
-            print_info "  ${SCRIPT_DIR}/.venv/bin/pip install -r ${SCRIPT_DIR}/requirements.txt"
+            print_error "Failed to install packages"
             exit 1
         fi
     else
@@ -363,7 +356,7 @@ create_nightly_service_files() {
     RAG_RUNTIME_MAX_SEC="$(env_value RAG_RUNTIME_MAX_SEC)"
     RAG_TIMER_ON_CALENDAR="$(env_value RAG_TIMER_ON_CALENDAR)"
     RAG_SERVICE_CONTINUOUS="$(env_value RAG_SERVICE_CONTINUOUS)"
-    RAG_SERVICE_CONTINUOUS="${RAG_SERVICE_CONTINUOUS:-false}"
+    RAG_SERVICE_CONTINUOUS="${RAG_SERVICE_CONTINUOUS:-true}"
     RAG_PREFETCH_RANDOM_BOOKS="$(env_value RAG_PREFETCH_RANDOM_BOOKS)"
     RAG_RECONCILE_ON_START="$(env_value RAG_RECONCILE_ON_START)"
     INSTALL_NIGHTLY_EMBEDDINGS="$(env_value INSTALL_NIGHTLY_EMBEDDINGS)"
@@ -452,7 +445,6 @@ install_service() {
     print_info "Installing ${SERVICE_NAME} service..."
     
     check_root
-    confirm_systemd_change "Installing ${SERVICE_NAME}"
     
     # Run all pre-installation checks
     run_all_checks
@@ -500,7 +492,6 @@ install_service() {
 # Uninstall the service
 uninstall_service() {
     print_info "Uninstalling ${SERVICE_NAME} service and ${NIGHTLY_SERVICE_NAME} timer..."
-    confirm_systemd_change "Uninstalling ${SERVICE_NAME}"
     
     # Stop service if running
     if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null || systemctl --user is-active --quiet "$SERVICE_NAME" 2>/dev/null; then

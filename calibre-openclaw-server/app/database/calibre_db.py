@@ -1,4 +1,5 @@
 import sqlite3
+import time
 from pathlib import Path
 from typing import List, Dict, Optional, Any
 from contextlib import contextmanager
@@ -9,14 +10,199 @@ from app.utils.logger import get_logger
 logger = get_logger(__name__)
 
 FORMAT_PRIORITY = ["PDF", "EPUB", "AZW3", "MOBI", "DJVU", "FB2", "TXT", "RTF", "DOCX", "HTMLZ"]
+REQUIRED_TABLES = {"books", "data", "authors", "books_authors_link"}
+
+
+class CalibreMetadataDBUnavailable(RuntimeError):
+    """Raised when the configured Calibre metadata.db cannot be handled safely."""
+
+    def __init__(self, diagnostic: Dict[str, Any]):
+        self.diagnostic = diagnostic
+        super().__init__(diagnostic["message"])
+
+
+def _diagnostic(
+    *,
+    status: str,
+    reason: str,
+    message: str,
+    path: Optional[Path] = None,
+    agent_action: str,
+    details: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    payload = {
+        "status": status,
+        "reason": reason,
+        "message": message,
+        "calibre_db_path": str(path) if path else settings.CALIBRE_DB_PATH,
+        "agent_action": agent_action,
+        "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    if details:
+        payload["details"] = details
+    return payload
+
+
+def diagnose_calibre_db() -> Dict[str, Any]:
+    """Return a structured status for the configured Calibre metadata.db."""
+    configured_path = (settings.CALIBRE_DB_PATH or "").strip()
+    if not configured_path:
+        return _diagnostic(
+            status="unavailable",
+            reason="not_configured",
+            message="CALIBRE_DB_PATH is empty or not configured.",
+            path=None,
+            agent_action="notify_user",
+        )
+
+    db_path = Path(configured_path).expanduser()
+    parent = db_path.parent
+    if not parent.exists():
+        return _diagnostic(
+            status="unavailable",
+            reason="parent_directory_missing",
+            message=f"The parent directory for metadata.db does not exist: {parent}",
+            path=db_path,
+            agent_action="notify_user",
+        )
+    if not db_path.exists():
+        return _diagnostic(
+            status="unavailable",
+            reason="file_missing",
+            message=f"Calibre metadata.db was not found at {db_path}.",
+            path=db_path,
+            agent_action="notify_user",
+        )
+    if not db_path.is_file():
+        return _diagnostic(
+            status="unavailable",
+            reason="not_a_file",
+            message=f"CALIBRE_DB_PATH points to a directory or special file, not metadata.db: {db_path}",
+            path=db_path,
+            agent_action="notify_user",
+        )
+
+    try:
+        stat = db_path.stat()
+    except OSError as exc:
+        return _diagnostic(
+            status="unavailable",
+            reason="stat_failed",
+            message=f"Cannot inspect metadata.db: {exc}",
+            path=db_path,
+            agent_action="notify_user",
+            details={"errno": exc.errno},
+        )
+
+    if stat.st_size == 0:
+        return _diagnostic(
+            status="unavailable",
+            reason="empty_file",
+            message=f"metadata.db exists but is empty: {db_path}",
+            path=db_path,
+            agent_action="notify_user",
+            details={"size_bytes": stat.st_size},
+        )
+
+    try:
+        conn = sqlite3.connect(
+            f"file:{db_path}?mode=ro&nolock=1",
+            uri=True,
+            timeout=2,
+            check_same_thread=False,
+        )
+        conn.row_factory = sqlite3.Row
+        try:
+            quick_check = conn.execute("PRAGMA quick_check").fetchone()
+            quick_check_result = quick_check[0] if quick_check else None
+            if quick_check_result != "ok":
+                return _diagnostic(
+                    status="unavailable",
+                    reason="integrity_check_failed",
+                    message=f"SQLite quick_check failed for metadata.db: {quick_check_result}",
+                    path=db_path,
+                    agent_action="notify_user",
+                    details={"quick_check": quick_check_result},
+                )
+
+            table_rows = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+            tables = {row["name"] for row in table_rows}
+            missing_tables = sorted(REQUIRED_TABLES - tables)
+            if missing_tables:
+                return _diagnostic(
+                    status="unavailable",
+                    reason="invalid_calibre_schema",
+                    message="metadata.db is readable but does not look like a Calibre database.",
+                    path=db_path,
+                    agent_action="notify_user",
+                    details={"missing_tables": missing_tables},
+                )
+
+            book_count = conn.execute("SELECT COUNT(*) FROM books").fetchone()[0]
+        finally:
+            conn.close()
+    except sqlite3.OperationalError as exc:
+        raw = str(exc)
+        lowered = raw.lower()
+        reason = "sqlite_operational_error"
+        agent_action = "notify_user"
+        if "locked" in lowered or "busy" in lowered:
+            reason = "database_locked"
+            agent_action = "wait"
+        elif "unable to open" in lowered:
+            reason = "open_failed"
+        elif "file is not a database" in lowered:
+            reason = "not_sqlite_database"
+        elif "disk i/o" in lowered:
+            reason = "disk_io_error"
+        return _diagnostic(
+            status="unavailable",
+            reason=reason,
+            message=f"SQLite could not open or validate metadata.db: {raw}",
+            path=db_path,
+            agent_action=agent_action,
+        )
+    except sqlite3.DatabaseError as exc:
+        return _diagnostic(
+            status="unavailable",
+            reason="sqlite_database_error",
+            message=f"SQLite reported a database error for metadata.db: {exc}",
+            path=db_path,
+            agent_action="notify_user",
+        )
+    except OSError as exc:
+        return _diagnostic(
+            status="unavailable",
+            reason="filesystem_error",
+            message=f"Filesystem error while reading metadata.db: {exc}",
+            path=db_path,
+            agent_action="notify_user",
+            details={"errno": exc.errno},
+        )
+
+    return _diagnostic(
+        status="available",
+        reason="ok",
+        message="metadata.db is readable and has the expected Calibre schema.",
+        path=db_path,
+        agent_action="proceed",
+        details={
+            "size_bytes": stat.st_size,
+            "mtime": stat.st_mtime,
+            "book_count": book_count,
+        },
+    )
 
 
 @contextmanager
 def get_calibre_db():
     """Context manager for readonly Calibre database connection without file locking."""
     db_path = Path(settings.CALIBRE_DB_PATH)
-    if not db_path.exists():
-        raise FileNotFoundError(f"Calibre database not found at {db_path}")
+    diagnostic = diagnose_calibre_db()
+    if diagnostic["status"] != "available":
+        raise CalibreMetadataDBUnavailable(diagnostic)
     
     # Use read-only mode with no locking to allow external modifications
     # mode=ro: read-only

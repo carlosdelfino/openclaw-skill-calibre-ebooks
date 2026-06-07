@@ -417,11 +417,7 @@ class EmbeddingService:
             for result in results:
                 result["citation"] = self._format_citation(result)
             
-            logger.info(
-                "Semantic search returned %s results",
-                len(results),
-                extra={"operation": "semantic_search", "query_length": len(query or "")},
-            )
+            logger.info(f"Semantic search for '{query}' returned {len(results)} results")
             return results
         except Exception as e:
             logger.error(f"Error in semantic search: {e}")

@@ -16,13 +16,16 @@ class Settings(BaseSettings):
     # API security
     API_KEY: Optional[SecretStr] = Field(default=None)
     ALLOW_UNAUTHENTICATED: bool = Field(default=False)
+    # When true, GET /health is reachable without an API key (useful for
+    # external monitoring/load balancers). Deny by default; the endpoint still
+    # works with a valid API key when this is false.
+    PUBLIC_HEALTHCHECK: bool = Field(default=False)
     CORS_ALLOW_ORIGINS: str = Field(default="http://127.0.0.1:6180,http://localhost:6180")
     CORS_ALLOW_CREDENTIALS: bool = Field(default=False)
     ALLOW_BOOK_CONTENT_DOWNLOADS: bool = Field(default=False)
     ENABLE_NETWORK_BINDINGS_ENDPOINT: bool = Field(default=False)
     ENABLE_NETWORK_BINDINGS_MONITOR: bool = Field(default=False)
     ALLOW_GET_AUTO_SYNC: bool = Field(default=False)
-    PUBLIC_HEALTHCHECK: bool = Field(default=False)
     
     # Ollama
     OLLAMA_HOST: str = Field(default="http://localhost:11434")

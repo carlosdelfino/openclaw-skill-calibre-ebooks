@@ -1,11 +1,12 @@
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import Response, StreamingResponse, JSONResponse
 from typing import Optional
 
 from app.models import BookResponse, BookListResponse, SyncResponse
 from app.services.book_service import book_service
 from app.utils.logger import get_logger
 from app.config import settings
+from app.database.calibre_db import CalibreMetadataDBUnavailable, diagnose_calibre_db
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/books", tags=["books"])
@@ -17,6 +18,16 @@ def require_content_downloads_enabled() -> None:
             status_code=403,
             detail="Book content downloads are disabled. Set ALLOW_BOOK_CONTENT_DOWNLOADS=true to enable them.",
         )
+
+
+def calibre_db_unavailable_response(exc: CalibreMetadataDBUnavailable) -> HTTPException:
+    return HTTPException(
+        status_code=503,
+        detail={
+            "error": "calibre_metadata_db_unavailable",
+            **exc.diagnostic,
+        },
+    )
 
 
 @router.get("", response_model=BookListResponse)
@@ -55,9 +66,20 @@ async def list_books(
         )
     except HTTPException:
         raise
+    except CalibreMetadataDBUnavailable as e:
+        logger.warning("Calibre metadata.db unavailable during book listing: %s", e.diagnostic)
+        raise calibre_db_unavailable_response(e)
     except Exception as e:
         logger.error(f"Error listing books: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/calibre-db/status")
+async def calibre_db_status():
+    """Diagnose whether CALIBRE_DB_PATH points to a usable Calibre metadata.db."""
+    diagnostic = diagnose_calibre_db()
+    status_code = 200 if diagnostic["status"] == "available" else 503
+    return JSONResponse(status_code=status_code, content=diagnostic)
 
 
 @router.get("/sync", response_model=SyncResponse)
@@ -69,6 +91,9 @@ async def sync_books():
             synced_count=synced_count,
             message=f"Successfully synchronized {synced_count} books"
         )
+    except CalibreMetadataDBUnavailable as e:
+        logger.warning("Calibre metadata.db unavailable during sync: %s", e.diagnostic)
+        raise calibre_db_unavailable_response(e)
     except Exception as e:
         logger.error(f"Error syncing books: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -106,6 +131,9 @@ async def sync_status():
             "needs_sync": not is_synced,
             "message": f"Calibre: {calibre_count} books, PostgreSQL: {postgres_count} books"
         }
+    except CalibreMetadataDBUnavailable as e:
+        logger.warning("Calibre metadata.db unavailable during sync status: %s", e.diagnostic)
+        raise calibre_db_unavailable_response(e)
     except Exception as e:
         logger.error(f"Error checking sync status: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")

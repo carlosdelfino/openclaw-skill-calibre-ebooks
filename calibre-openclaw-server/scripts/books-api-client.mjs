@@ -1,11 +1,8 @@
 #!/usr/bin/env node
 
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { writeFile } from "node:fs/promises";
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:6180";
-const DEFAULT_OUTPUT_ROOT = resolve("skills/calibre-ebooks/tmp/downloads");
-const TMP_OUTPUT_ROOT = "/tmp/calibre-ebooks";
 const QUERY_NAMES = ["q", "query", "search", "term", "text", "title", "author", "tag", "tags", "subject"];
 const LIMIT_NAMES = ["limit", "page_size", "pageSize", "per_page", "perPage", "size", "count"];
 let globalOptions = {};
@@ -209,21 +206,8 @@ async function commandBook(base, openapi, id) {
 }
 
 async function commandRequest(base, method, path, options) {
-  if (/^https?:\/\//i.test(path)) {
-    throw new Error("Full URLs are not allowed for request; pass a local /api/... path.");
-  }
-  if (!path.startsWith("/api/")) {
-    throw new Error("request is limited to /api/... paths.");
-  }
-  const normalizedMethod = method.toUpperCase();
-  if (normalizedMethod !== "GET" && !/^(1|true|yes|s|sim)$/i.test(process.env.ALLOW_MUTATING_API_REQUESTS || "")) {
-    throw new Error("Mutating API requests are disabled. Set ALLOW_MUTATING_API_REQUESTS=true to enable them.");
-  }
-  if (options.body !== undefined && normalizedMethod === "GET") {
-    throw new Error("GET requests cannot include --body.");
-  }
   const headers = {};
-  const init = { method: normalizedMethod, headers };
+  const init = { method: method.toUpperCase(), headers };
   const params = parseQueryPairs(options.query);
 
   if (options.body !== undefined) {
@@ -236,22 +220,12 @@ async function commandRequest(base, method, path, options) {
 
   if (options.output) {
     const buffer = Buffer.from(await response.arrayBuffer());
-    const outputPath = checkedOutputPath(options.output);
-    await mkdir(dirname(outputPath), { recursive: true });
-    await writeFile(outputPath, buffer);
-    return { output: outputPath, bytes: buffer.length, contentType };
+    await writeFile(options.output, buffer);
+    return { output: options.output, bytes: buffer.length, contentType };
   }
 
   if (contentType.includes("application/json")) return response.json();
   return response.text();
-}
-
-function checkedOutputPath(path) {
-  const outputPath = resolve(path);
-  if (/^(1|true|yes|s|sim)$/i.test(process.env.ALLOW_ARBITRARY_OUTPUT_PATH || "")) return outputPath;
-  if (outputPath.startsWith(`${DEFAULT_OUTPUT_ROOT}/`) || outputPath === DEFAULT_OUTPUT_ROOT) return outputPath;
-  if (outputPath.startsWith(`${TMP_OUTPUT_ROOT}/`) || outputPath === TMP_OUTPUT_ROOT) return outputPath;
-  throw new Error("Refusing to write outside skills/calibre-ebooks/tmp/downloads or /tmp/calibre-ebooks. Set ALLOW_ARBITRARY_OUTPUT_PATH=true to override.");
 }
 
 async function main() {

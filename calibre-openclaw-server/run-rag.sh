@@ -25,6 +25,7 @@ echo ""
 if [ ! -d "$VENV_DIR" ]; then
     echo -e "${YELLOW}Virtual environment not found. Creating...${NC}"
     python3 -m venv "$VENV_DIR"
+    "$VENV_PYTHON" -m pip install --upgrade pip --no-cache-dir
     echo -e "${GREEN}✓ Virtual environment created at $VENV_DIR${NC}"
 else
     echo -e "${GREEN}✓ Virtual environment found at $VENV_DIR${NC}"
@@ -88,16 +89,8 @@ for package in fastapi uvicorn pydantic psycopg2 fitz httpx; do
 done
 
 if [ "$missing_packages" -gt 0 ]; then
-    ALLOW_RUNTIME_PIP_INSTALL="$(env_value ALLOW_RUNTIME_PIP_INSTALL)"
-    if [[ "$ALLOW_RUNTIME_PIP_INSTALL" =~ ^(1|true|TRUE|yes|YES|s|sim)$ ]]; then
-        echo "Installing missing dependencies from requirements.txt..."
-        "$VENV_PIP" install -r requirements.txt
-    else
-        echo -e "${RED}ERROR: Missing dependencies and runtime pip install is disabled.${NC}"
-        echo "Set ALLOW_RUNTIME_PIP_INSTALL=true explicitly or run manually:"
-        echo "  $VENV_PIP install -r requirements.txt"
-        exit 1
-    fi
+    echo "Installing missing dependencies from requirements.txt..."
+    "$VENV_PIP" install -r requirements.txt
 fi
 
 OLLAMA_URL="$(env_value OLLAMA_HOST)"

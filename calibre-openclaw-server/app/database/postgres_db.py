@@ -10,6 +10,57 @@ from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# Multilingual stopwords (PT + EN) filtered out of content-insight term
+# frequencies so the "most relevant words" reflect domain vocabulary instead of
+# grammatical filler. Kept intentionally small and language-agnostic; the SQL
+# also drops non-alphabetic tokens and very short words.
+CONTENT_INSIGHT_STOPWORDS = set(
+    """
+    a o e os as um uma uns umas de do da dos das em no na nos nas ao aos pelo pela
+    por para com sem sob sobre entre ate apos antes durante que se quando onde como
+    porque entao tambem nao sim mais menos muito pouco cada todo toda todos todas
+    ser estar ter haver foi era sao seja sendo seu sua seus suas este esta estes estas
+    esse essa isso isto aquele aquela aquilo pode podem deve devem qual quais cujo
+    the of and to in is it for on with as at by an be this that these those from or
+    are was were will would can could should may might must shall not but if then
+    than which who whom whose you your they them their our its his her she he we us
+    me my mine into out over under up down off again further here there all any some
+    such no nor only own same so too very just about after before between because
+    while where when what how why both each few more most other have has had does did
+    doing done being been using used use also one two three first second new
+    """.split()
+)
+
+# Text-search configurations allowed for content-insight term frequencies.
+CONTENT_INSIGHT_REGCONFIGS = {"simple", "english", "portuguese"}
+
+
+def build_top_terms_query(
+    regconfig: str,
+    sample_size: int,
+    min_word_length: int,
+    limit: int,
+) -> tuple[str, int, int]:
+    """Validate term-frequency inputs and build the sampled ts_stat inner query.
+
+    Returns ``(inner_query, min_word_length, limit)`` with all values clamped to
+    safe ranges. ``regconfig`` is validated against an allow-list and only the
+    validated regconfig and integer sample size are interpolated, so caller
+    input cannot inject SQL.
+    """
+    if regconfig not in CONTENT_INSIGHT_REGCONFIGS:
+        regconfig = "simple"
+    sample_size = max(1, min(int(sample_size), 50000))
+    min_word_length = max(1, min(int(min_word_length), 40))
+    limit = max(1, min(int(limit), 200))
+
+    inner_query = (
+        f"SELECT to_tsvector('{regconfig}', content) "
+        f"FROM (SELECT content FROM book_chunks "
+        f"WHERE embedding IS NOT NULL ORDER BY random() LIMIT {sample_size}) sampled"
+    )
+    return inner_query, min_word_length, limit
+
 
 class PostgreSQLDB:
     """Interface for PostgreSQL database operations."""
@@ -473,11 +524,11 @@ class PostgreSQLDB:
             bc.section_title,
             b.title,
             b.author,
-            1 - (bc.embedding <=> %s) as similarity
+            1 - (bc.embedding <=> %s::vector) as similarity
         FROM book_chunks bc
         JOIN books b ON bc.book_id = b.id
         WHERE bc.embedding IS NOT NULL
-        ORDER BY bc.embedding <=> %s
+        ORDER BY bc.embedding <=> %s::vector
         LIMIT %s
         """
         
@@ -578,6 +629,113 @@ class PostgreSQLDB:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
             cursor.execute(query)
             return cursor.fetchone()
+
+    def get_embedding_distribution(self) -> Dict[str, Any]:
+        """Return chunk distribution across the books that are actually indexed.
+
+        The catalog (``books``) holds every Calibre title, but only a subset has
+        embeddings. Averaging chunks over the whole catalog is misleading; this
+        reports the distribution over indexed books only.
+        """
+        query = """
+        SELECT
+            COUNT(*) AS indexed_books,
+            COALESCE(SUM(c), 0) AS total_chunks,
+            COALESCE(ROUND(AVG(c)::numeric, 2), 0) AS avg_chunks_per_indexed_book,
+            COALESCE(MIN(c), 0) AS min_chunks,
+            COALESCE(MAX(c), 0) AS max_chunks,
+            COALESCE(
+                ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY c)::numeric, 1),
+                0
+            ) AS median_chunks
+        FROM (
+            SELECT book_id, COUNT(*) AS c
+            FROM book_chunks
+            WHERE embedding IS NOT NULL
+            GROUP BY book_id
+        ) per_book
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor.execute(query)
+            row = cursor.fetchone() or {}
+            return {
+                "indexed_books": int(row.get("indexed_books") or 0),
+                "total_chunks": int(row.get("total_chunks") or 0),
+                "avg_chunks_per_indexed_book": float(row.get("avg_chunks_per_indexed_book") or 0),
+                "min_chunks": int(row.get("min_chunks") or 0),
+                "max_chunks": int(row.get("max_chunks") or 0),
+                "median_chunks": float(row.get("median_chunks") or 0),
+            }
+
+    def get_top_concepts(self, limit: int = 15) -> List[Dict[str, Any]]:
+        """Return the most frequently cited concepts (detected section/chapter titles)."""
+        query = """
+        SELECT
+            section_title AS concept,
+            COUNT(*) AS chunks,
+            COUNT(DISTINCT book_id) AS books
+        FROM book_chunks
+        WHERE embedding IS NOT NULL
+          AND NULLIF(BTRIM(section_title), '') IS NOT NULL
+        GROUP BY section_title
+        ORDER BY chunks DESC, books DESC
+        LIMIT %s
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor.execute(query, (limit,))
+            return [
+                {
+                    "concept": row["concept"],
+                    "chunks": int(row["chunks"]),
+                    "books": int(row["books"]),
+                }
+                for row in cursor.fetchall()
+            ]
+
+    def get_top_terms(
+        self,
+        limit: int = 25,
+        sample_size: int = 6000,
+        min_word_length: int = 4,
+        regconfig: str = "simple",
+    ) -> List[Dict[str, Any]]:
+        """Return the most relevant content words across embedded chunks.
+
+        Term frequencies are computed with PostgreSQL ``ts_stat`` over a random
+        sample of embedded chunks (bounded by ``sample_size`` to keep the query
+        cheap on large libraries). Stopwords, short tokens and non-alphabetic
+        tokens are removed so the result highlights domain vocabulary.
+
+        ``regconfig`` is validated against an allow-list and the inner query is
+        passed to ``ts_stat`` as a bound parameter, so no caller value is
+        interpolated into SQL.
+        """
+        inner_query, min_word_length, limit = build_top_terms_query(
+            regconfig, sample_size, min_word_length, limit
+        )
+        query = """
+        SELECT word, nentry AS occurrences, ndoc AS chunks
+        FROM ts_stat(%s)
+        WHERE char_length(word) >= %s
+          AND word ~ '^[[:alpha:]]+$'
+          AND word <> ALL(%s)
+        ORDER BY nentry DESC, ndoc DESC
+        LIMIT %s
+        """
+        stopwords = list(CONTENT_INSIGHT_STOPWORDS)
+        with self.get_connection() as conn:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor.execute(query, (inner_query, min_word_length, stopwords, limit))
+            return [
+                {
+                    "word": row["word"],
+                    "occurrences": int(row["occurrences"]),
+                    "chunks": int(row["chunks"]),
+                }
+                for row in cursor.fetchall()
+            ]
 
 
 # Global instance

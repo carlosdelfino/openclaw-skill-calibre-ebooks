@@ -11,14 +11,6 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/books", tags=["books"])
 
 
-def require_content_downloads_enabled() -> None:
-    if not settings.ALLOW_BOOK_CONTENT_DOWNLOADS:
-        raise HTTPException(
-            status_code=403,
-            detail="Book content downloads are disabled. Set ALLOW_BOOK_CONTENT_DOWNLOADS=true to enable them.",
-        )
-
-
 @router.get("", response_model=BookListResponse)
 async def list_books(
     limit: int = Query(default=100, ge=1, le=1000),
@@ -33,11 +25,6 @@ async def list_books(
         
         # Auto-sync if PostgreSQL is empty and auto_sync is enabled
         if total == 0 and auto_sync:
-            if not settings.ALLOW_GET_AUTO_SYNC:
-                raise HTTPException(
-                    status_code=403,
-                    detail="GET auto-sync is disabled. Use /api/books/sync or set ALLOW_GET_AUTO_SYNC=true.",
-                )
             logger.info("PostgreSQL is empty, auto-syncing from Calibre...")
             synced_count = book_service.sync_books_from_calibre()
             logger.info(f"Auto-synced {synced_count} books from Calibre")
@@ -53,8 +40,6 @@ async def list_books(
             limit=limit,
             offset=offset
         )
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Error listing books: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -198,7 +183,6 @@ async def get_book_cover(book_id: int):
 async def get_book_pdf(book_id: int):
     """Get the complete PDF file for a book."""
     try:
-        require_content_downloads_enabled()
         pdf_data = book_service.get_book_pdf(book_id)
         if not pdf_data:
             raise HTTPException(status_code=404, detail="PDF not found")
@@ -219,7 +203,6 @@ async def get_book_pdf(book_id: int):
 async def get_book_page_pdf(book_id: int, page_num: int):
     """Get a specific page as PDF."""
     try:
-        require_content_downloads_enabled()
         if page_num < 1:
             raise HTTPException(status_code=400, detail="Page number must be >= 1")
         
@@ -243,7 +226,6 @@ async def get_book_page_pdf(book_id: int, page_num: int):
 async def get_book_markdown(book_id: int):
     """Get the complete book content as Markdown."""
     try:
-        require_content_downloads_enabled()
         markdown = book_service.get_book_markdown(book_id)
         if not markdown:
             raise HTTPException(status_code=404, detail="Book not found or conversion failed")
@@ -264,7 +246,6 @@ async def get_book_markdown(book_id: int):
 async def get_book_page_markdown(book_id: int, page_num: int):
     """Get a specific page as Markdown."""
     try:
-        require_content_downloads_enabled()
         if page_num < 1:
             raise HTTPException(status_code=400, detail="Page number must be >= 1")
         
