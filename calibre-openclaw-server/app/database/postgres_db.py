@@ -4,6 +4,8 @@ from psycopg2.extras import RealDictCursor
 from typing import List, Dict, Any, Optional
 from contextlib import contextmanager
 import json
+import re
+import unicodedata
 
 from app.config import settings
 from app.utils.logger import get_logger
@@ -34,6 +36,14 @@ CONTENT_INSIGHT_STOPWORDS = set(
 # Text-search configurations allowed for content-insight term frequencies.
 CONTENT_INSIGHT_REGCONFIGS = {"simple", "english", "portuguese"}
 
+BOOK_SEARCH_STOPWORDS = CONTENT_INSIGHT_STOPWORDS | set(
+    """
+    livro livros ebook ebooks pdf epub sobre acerca algum alguma alguns algumas
+    tem tenho tinha havia existe existem biblioteca acervo local procurar procure
+    buscar busque pesquisar pesquise encontrar encontre catequese tema assunto
+    """.split()
+)
+
 
 def build_top_terms_query(
     regconfig: str,
@@ -60,6 +70,23 @@ def build_top_terms_query(
         f"WHERE embedding IS NOT NULL ORDER BY random() LIMIT {sample_size}) sampled"
     )
     return inner_query, min_word_length, limit
+
+
+def extract_book_search_terms(query: str, max_terms: int = 8) -> List[str]:
+    """Extract useful catalog terms from a natural-language book query."""
+    normalized = unicodedata.normalize("NFKD", query or "")
+    ascii_query = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    terms = []
+    seen = set()
+    for token in re.findall(r"[A-Za-zÀ-ÿ0-9]+", ascii_query.lower()):
+        if len(token) < 3 or token in BOOK_SEARCH_STOPWORDS:
+            continue
+        if token not in seen:
+            terms.append(token)
+            seen.add(token)
+        if len(terms) >= max_terms:
+            break
+    return terms
 
 
 class PostgreSQLDB:
@@ -400,21 +427,41 @@ class PostgreSQLDB:
             return books
     
     def search_books(self, query: str, limit: int = 50) -> List[Dict[str, Any]]:
-        """Search books by title, author, or metadata."""
-        search_query = """
-        SELECT * FROM books 
-        WHERE title ILIKE %s 
-           OR author ILIKE %s 
-           OR metadata::text ILIKE %s
-        ORDER BY title
+        """Search books by title, author, or metadata.
+
+        The first rank keeps exact phrase matches first. Natural language
+        prompts like "algum livro sobre catecismo" then fall back to useful
+        terms such as "catecismo" instead of requiring the full phrase.
+        """
+        phrase = (query or "").strip()
+        terms = extract_book_search_terms(phrase)
+        patterns = [f"%{phrase}%"] + [f"%{term}%" for term in terms]
+        conditions = []
+        params: List[Any] = []
+
+        for rank, pattern in enumerate(patterns):
+            conditions.append(
+                "(CASE WHEN title ILIKE %s OR author ILIKE %s OR metadata::text ILIKE %s "
+                f"THEN {rank} ELSE NULL END)"
+            )
+            params.extend([pattern, pattern, pattern])
+
+        rank_expression = "LEAST(" + ", ".join(conditions) + ")"
+        search_query = f"""
+        SELECT *
+        FROM (
+            SELECT *, {rank_expression} AS search_rank
+            FROM books
+        ) ranked_books
+        WHERE search_rank IS NOT NULL
+        ORDER BY search_rank, title
         LIMIT %s
         """
-        
-        pattern = f"%{query}%"
-        
+        params.append(limit)
+
         with self.get_connection() as conn:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
-            cursor.execute(search_query, (pattern, pattern, pattern, limit))
+            cursor.execute(search_query, params)
             return cursor.fetchall()
     
     # Book chunks operations

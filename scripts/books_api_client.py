@@ -22,6 +22,17 @@ TMP_OUTPUT_ROOT = Path("/tmp/calibre-ebooks")
 QUERY_NAMES = ["q", "query", "search", "term", "text", "title", "author", "tag", "tags", "subject"]
 LIMIT_NAMES = ["limit", "page_size", "pageSize", "per_page", "perPage", "size", "count"]
 DEFAULT_BASE_URL = "http://127.0.0.1:6180"
+SEARCH_STOPWORDS = {
+    "a", "o", "e", "os", "as", "um", "uma", "uns", "umas", "de", "do", "da",
+    "dos", "das", "em", "no", "na", "nos", "nas", "ao", "aos", "pelo",
+    "pela", "por", "para", "com", "sem", "sobre", "que", "se", "como",
+    "qual", "quais", "the", "of", "and", "to", "in", "for", "with",
+    "book", "books", "ebook", "ebooks", "livro", "livros", "pdf", "epub",
+    "algum", "alguma", "alguns", "algumas", "havia", "existe", "existem",
+    "tem", "tenho", "tinha", "biblioteca", "acervo", "local", "procurar",
+    "procure", "buscar", "busque", "pesquisar", "pesquise", "encontrar",
+    "encontre",
+}
 
 
 def env_candidates() -> list[Path]:
@@ -50,6 +61,24 @@ def parse_env_line(line: str) -> tuple[str, str] | None:
     else:
         value = re.sub(r"\s+#.*$", "", value).rstrip()
     return key, value
+
+
+def search_terms(query: str, max_terms: int = 8) -> list[str]:
+    import unicodedata
+
+    normalized = unicodedata.normalize("NFKD", query or "")
+    ascii_query = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    terms = []
+    seen = set()
+    for token in re.findall(r"[A-Za-zÀ-ÿ0-9]+", ascii_query.lower()):
+        if len(token) < 3 or token in SEARCH_STOPWORDS:
+            continue
+        if token not in seen:
+            terms.append(token)
+            seen.add(token)
+        if len(terms) >= max_terms:
+            break
+    return terms
 
 
 def load_env_files() -> None:
@@ -275,16 +304,24 @@ def command_search(base: str, openapi: dict[str, Any], query: str, limit: str | 
         query_name = next((name for name in candidate["query"] if name in QUERY_NAMES), candidate["query"][0] if candidate["query"] else None)
         if not query_name:
             continue
-        params = {query_name: query}
-        limit_name = next((name for name in candidate["query"] if name in LIMIT_NAMES), None)
-        if limit_name and limit:
-            params[limit_name] = limit
-        attempted.append({"method": candidate["method"], "path": candidate["path"], "params": params})
-        try:
-            data = request_json(api_url(base, candidate["path"], params))
-            return {"endpoint": {"method": candidate["method"], "path": candidate["path"]}, "params": params, "data": data}
-        except RuntimeError as error:
-            attempted[-1]["error"] = str(error)
+        retry_queries = [query] + [term for term in search_terms(query) if term != query.strip().lower()]
+        for retry_query in retry_queries:
+            params = {query_name: retry_query}
+            limit_name = next((name for name in candidate["query"] if name in LIMIT_NAMES), None)
+            if limit_name and limit:
+                params[limit_name] = limit
+            attempted.append({"method": candidate["method"], "path": candidate["path"], "params": params})
+            try:
+                data = request_json(api_url(base, candidate["path"], params))
+                if data or retry_query == retry_queries[-1]:
+                    return {
+                        "endpoint": {"method": candidate["method"], "path": candidate["path"]},
+                        "params": params,
+                        "fallbackQuery": retry_query if retry_query != query else None,
+                        "data": data,
+                    }
+            except RuntimeError as error:
+                attempted[-1]["error"] = str(error)
     raise RuntimeError(f"No usable search endpoint succeeded. Candidates:\n{json.dumps(attempted, ensure_ascii=False, indent=2)}")
 
 

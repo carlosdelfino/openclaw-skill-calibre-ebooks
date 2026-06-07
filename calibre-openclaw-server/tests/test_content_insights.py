@@ -12,6 +12,7 @@ from app.database.postgres_db import (
     CONTENT_INSIGHT_REGCONFIGS,
     CONTENT_INSIGHT_STOPWORDS,
     build_top_terms_query,
+    extract_book_search_terms,
 )
 
 
@@ -52,6 +53,20 @@ class BuildTopTermsQueryTests(unittest.TestCase):
         # A few representative PT/EN stopwords that must be filtered out.
         for word in ("the", "and", "de", "que", "with"):
             self.assertIn(word, CONTENT_INSIGHT_STOPWORDS)
+
+
+class BookSearchTermTests(unittest.TestCase):
+    def test_natural_language_query_keeps_subject_term(self):
+        self.assertEqual(
+            extract_book_search_terms("havia algum livro sobre catecismo?"),
+            ["catecismo"],
+        )
+
+    def test_diacritics_are_normalized_for_term_extraction(self):
+        self.assertEqual(
+            extract_book_search_terms("Igreja Católica Apostólica Romana"),
+            ["igreja", "catolica", "apostolica", "romana"],
+        )
 
 
 if __name__ == "__main__":
