@@ -17,9 +17,11 @@ from urllib.request import Request, urlopen
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SKILL_DIR = SCRIPT_DIR.parent
+DEFAULT_OUTPUT_ROOT = SKILL_DIR / "tmp" / "downloads"
+TMP_OUTPUT_ROOT = Path("/tmp/calibre-ebooks")
 QUERY_NAMES = ["q", "query", "search", "term", "text", "title", "author", "tag", "tags", "subject"]
 LIMIT_NAMES = ["limit", "page_size", "pageSize", "per_page", "perPage", "size", "count"]
-DEFAULT_BASE_URL = "http://host.docker.internal:6180"
+DEFAULT_BASE_URL = "http://127.0.0.1:6180"
 
 
 def env_candidates() -> list[Path]:
@@ -69,11 +71,17 @@ def base_url(value: str | None) -> str:
     return (value or os.environ.get("BOOKS_API_URL") or DEFAULT_BASE_URL).rstrip("/")
 
 
+def api_key() -> str | None:
+    value = os.environ.get("BOOKS_API_KEY") or os.environ.get("API_KEY")
+    if value and value.strip():
+        return value.strip()
+    return None
+
+
 def api_url(base: str, path: str, params: dict[str, str] | None = None) -> str:
     if path.startswith("http://") or path.startswith("https://"):
-        url = path
-    else:
-        url = urljoin(f"{base}/", path.lstrip("/"))
+        raise ValueError("Full URLs are not allowed here; pass an API path such as /api/books")
+    url = urljoin(f"{base}/", path.lstrip("/"))
     if not params:
         return url
     query = urlencode({key: value for key, value in params.items() if value not in (None, "")})
@@ -82,6 +90,9 @@ def api_url(base: str, path: str, params: dict[str, str] | None = None) -> str:
 
 def request_bytes(url: str, method: str = "GET", body: str | None = None) -> tuple[bytes, dict[str, str]]:
     headers = {}
+    token = api_key()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     data = None
     if body is not None:
         headers["Content-Type"] = "application/json"
@@ -230,16 +241,32 @@ def resolve_output_path(output: str | None, output_dir: str | None, request_path
     filename = fallback_filename(request_path, headers, content_type)
     if output_dir:
         output_dir_path = Path(output_dir)
-        output_dir_path.mkdir(parents=True, exist_ok=True)
-        return output_dir_path / filename
+        output_path = checked_output_path(output_dir_path / filename)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        return output_path
     if not output:
         return None
     output_path = Path(output)
     if output.endswith("/") or output_path.is_dir():
-        output_path.mkdir(parents=True, exist_ok=True)
-        return output_path / filename
+        output_path = checked_output_path(output_path / filename)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        return output_path
+    output_path = checked_output_path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     return output_path
+
+
+def checked_output_path(path: Path) -> Path:
+    resolved = path.resolve()
+    if os.environ.get("ALLOW_ARBITRARY_OUTPUT_PATH", "").lower() in {"1", "true", "yes", "s", "sim"}:
+        return resolved
+    allowed_roots = [DEFAULT_OUTPUT_ROOT.resolve(), TMP_OUTPUT_ROOT.resolve()]
+    if any(resolved.is_relative_to(root) for root in allowed_roots):
+        return resolved
+    raise RuntimeError(
+        "Refusing to write outside skills/calibre-ebooks/tmp/downloads or /tmp/calibre-ebooks. "
+        "Set ALLOW_ARBITRARY_OUTPUT_PATH=true to override."
+    )
 
 
 def command_search(base: str, openapi: dict[str, Any], query: str, limit: str | None) -> dict[str, Any]:
@@ -275,6 +302,15 @@ def command_book(base: str, openapi: dict[str, Any], book_id: str) -> dict[str, 
 
 
 def command_request(base: str, method: str, path: str, args: argparse.Namespace) -> Any:
+    parsed_path = urlparse(path)
+    if parsed_path.scheme or parsed_path.netloc:
+        raise RuntimeError("Full URLs are not allowed for request; pass a local /api/... path.")
+    if not path.startswith("/api/"):
+        raise RuntimeError("request is limited to /api/... paths.")
+    if method != "GET" and os.environ.get("ALLOW_MUTATING_API_REQUESTS", "").lower() not in {"1", "true", "yes", "s", "sim"}:
+        raise RuntimeError("Mutating API requests are disabled. Set ALLOW_MUTATING_API_REQUESTS=true to enable them.")
+    if args.body and method == "GET":
+        raise RuntimeError("GET requests cannot include --body.")
     params = parse_query_pairs(args.query)
     payload, headers = request_bytes(api_url(base, path, params), method=method, body=args.body)
     content_type = headers.get("content-type", "")
@@ -338,12 +374,11 @@ def build_parser() -> argparse.ArgumentParser:
     request.add_argument(
         "method",
         type=str.upper,
-        choices=["GET", "POST", "PUT", "PATCH", "DELETE"],
-        help="HTTP method to send.",
+        help="HTTP method to send. Non-GET methods require ALLOW_MUTATING_API_REQUESTS=true.",
     )
     request.add_argument(
         "path",
-        help="API path such as /api/books, or a full http(s) URL.",
+        help="Books API path such as /api/books. Full http(s) URLs are rejected.",
     )
     request.add_argument(
         "--query",
@@ -362,7 +397,8 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help=(
             "Write a non-JSON or file response to this file or directory. "
-            "If PATH ends with / or is an existing directory, the API filename is used."
+            "If PATH ends with / or is an existing directory, the API filename is used. "
+            "By default writes are limited to skills/calibre-ebooks/tmp/downloads or /tmp/calibre-ebooks."
         ),
     )
     request.add_argument(

@@ -31,32 +31,14 @@ if [ ! -d "$VENV_DIR" ]; then
     python3 -m venv "$VENV_DIR"
     if [ $? -eq 0 ]; then
         echo -e "${GREEN}✓ Virtual environment created at $VENV_DIR${NC}"
-        # Upgrade pip to avoid PyPI JSON decode bug present in older pip versions
-        echo "Upgrading pip in new virtual environment..."
-        "$VENV_DIR/bin/python" -m pip install --upgrade pip --no-cache-dir 2>/dev/null
-        if [ $? -ne 0 ]; then
-            echo -e "${YELLOW}⚠ pip upgrade via index failed, trying get-pip.py...${NC}"
-            curl -s https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
-            "$VENV_DIR/bin/python" /tmp/get-pip.py --no-cache-dir
-        fi
-        echo -e "${GREEN}✓ pip upgraded: $($VENV_DIR/bin/pip --version)${NC}"
     else
         echo -e "${RED}ERROR: Failed to create virtual environment${NC}"
         exit 1
     fi
 else
     echo -e "${GREEN}✓ Virtual environment found at $VENV_DIR${NC}"
-    # Check and upgrade pip if needed
     pip_version=$($VENV_PIP --version | awk '{print $2}')
-    pip_major=$(echo $pip_version | cut -d. -f1)
-    if [ "$pip_major" -lt 25 ]; then
-        echo -e "${YELLOW}pip version $pip_version is old, upgrading...${NC}"
-        curl -s https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
-        $VENV_PYTHON /tmp/get-pip.py --no-cache-dir
-        echo -e "${GREEN}✓ pip upgraded: $($VENV_PIP --version)${NC}"
-    else
-        echo -e "${GREEN}✓ pip version $pip_version is up to date${NC}"
-    fi
+    echo -e "${GREEN}✓ pip version $pip_version${NC}"
 fi
 
 # Check if .env exists in multiple locations
@@ -96,6 +78,18 @@ fi
 
 # Export the directory containing .env for the app to find it
 export ENV_DIR="$(dirname "$ENV_FILE")"
+
+env_value() {
+    local key="$1"
+    local line value
+    line="$(grep -E "^${key}=" "$ENV_FILE" | tail -n 1 || true)"
+    value="${line#*=}"
+    value="${value%\"}"
+    value="${value#\"}"
+    value="${value%\'}"
+    value="${value#\'}"
+    printf '%s' "$value"
+}
 
 # Check if requirements.txt exists
 if [ ! -f "requirements.txt" ]; then
@@ -161,9 +155,8 @@ if [ $missing_packages -gt 0 ]; then
     echo ""
     echo -e "${YELLOW}WARNING: $missing_packages required package(s) are missing${NC}"
     echo ""
-    read -p "Do you want to install missing packages now? (y/n) " -n 1 -r
-    echo ""
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
+    ALLOW_RUNTIME_PIP_INSTALL="$(env_value ALLOW_RUNTIME_PIP_INSTALL)"
+    if [[ "$ALLOW_RUNTIME_PIP_INSTALL" =~ ^(1|true|TRUE|yes|YES|s|sim)$ ]]; then
         echo "Installing packages from requirements.txt in virtual environment..."
         $VENV_PIP install -r requirements.txt
         if [ $? -eq 0 ]; then
@@ -173,7 +166,8 @@ if [ $missing_packages -gt 0 ]; then
             exit 1
         fi
     else
-        echo -e "${RED}ERROR: Cannot start server without required packages${NC}"
+        echo -e "${RED}ERROR: Cannot start server without required packages. Runtime pip install is disabled.${NC}"
+        echo "Set ALLOW_RUNTIME_PIP_INSTALL=true explicitly or install manually:"
         echo "Please install them manually:"
         echo "  $VENV_PIP install -r requirements.txt"
         exit 1
@@ -215,7 +209,17 @@ echo ""
 echo "Checking PostgreSQL..."
 echo "----------------------"
 
-if PGPASSWORD="##g0kcoidjw0939c" psql -h localhost -U generativa -d rapport_biblioteca -c "SELECT 1" > /dev/null 2>&1; then
+PGUSER="$(env_value POSTGRESQL_DB_USER)"
+PGPASSWORD="$(env_value POSTGRESQL_DB_PASSWD)"
+PGDATABASE="$(env_value POSTGRESQL_DB_DATABASE)"
+PGHOST="$(env_value POSTGRESQL_DB_HOST)"
+PGHOST="${PGHOST:-localhost}"
+PGPORT="$(env_value POSTGRESQL_DB_PORT)"
+PGPORT="${PGPORT:-5432}"
+
+if [ -z "$PGUSER" ] || [ -z "$PGDATABASE" ]; then
+    echo -e "${YELLOW}⚠ POSTGRESQL_DB_USER and POSTGRESQL_DB_DATABASE must be configured in .env${NC}"
+elif PGPASSWORD="$PGPASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" -c "SELECT 1" > /dev/null 2>&1; then
     echo -e "${GREEN}✓ PostgreSQL is accessible${NC}"
 else
     echo -e "${YELLOW}⚠ PostgreSQL is not accessible${NC}"

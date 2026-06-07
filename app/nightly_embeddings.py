@@ -1,7 +1,7 @@
 """Nightly embedding prefetch worker.
 
-Processes queued embedding requests first. If no queued book needs work, it
-queues one random book without embeddings so the library is gradually prepared.
+Processes queued embedding requests first. Optional prefetch mode can queue
+unprocessed books so the library is gradually prepared.
 """
 
 from pathlib import Path
@@ -9,6 +9,7 @@ from typing import Optional
 import argparse
 import time
 
+from app.config import settings
 from app.database.postgres_db import postgres_db
 from app.services.book_service import book_service
 from app.services.conversion_service import conversion_service
@@ -65,25 +66,41 @@ def _cleanup_interrupted_item(queue_id: int, book_id: int):
     )
 
 
-def process_nightly_embeddings(continuous: bool = False, idle_sleep_seconds: int = 60) -> int:
+def process_nightly_embeddings(
+    continuous: bool = False,
+    idle_sleep_seconds: int = 60,
+    prefetch_random_books: bool = False,
+    reconcile_on_start: bool = False,
+) -> int:
     """Process embedding work, optionally looping until interrupted."""
     processed_books = 0
     total_embeddings = 0
     total_pages = 0
 
-    # Reconcile embedding version: if the model/config changed, stale embeddings
-    # are invalidated here so this worker regenerates them with the new model.
-    try:
-        result = embedding_service.reconcile_embedding_version()
-        logger.info("Embedding version reconciliation: %s", result)
-    except Exception as exc:
-        logger.error("Embedding version reconciliation failed: %s", exc)
+    if reconcile_on_start:
+        try:
+            result = embedding_service.reconcile_embedding_version()
+            logger.info("Embedding version reconciliation: %s", result)
+        except Exception as exc:
+            logger.error("Embedding version reconciliation failed: %s", exc)
+    else:
+        logger.info("Embedding version reconciliation skipped; enable RAG_RECONCILE_ON_START to run it")
 
     while True:
         queue_items = postgres_db.get_pending_queue_items(limit=1)
         if not queue_items:
             if not continuous and processed_books > 0:
                 break
+
+            if not prefetch_random_books:
+                if not continuous:
+                    break
+                logger.info(
+                    "No pending queue items. Random prefetch is disabled; sleeping %s second(s).",
+                    idle_sleep_seconds,
+                )
+                time.sleep(idle_sleep_seconds)
+                continue
 
             if not _ensure_random_book_queued():
                 if not continuous:
@@ -181,8 +198,20 @@ def main() -> int:
     parser.add_argument(
         "--idle-sleep",
         type=int,
-        default=60,
+        default=settings.RAG_IDLE_SLEEP_SECONDS,
         help="Seconds to wait before checking again when continuous mode has no work.",
+    )
+    parser.add_argument(
+        "--prefetch-random",
+        action="store_true",
+        default=settings.RAG_PREFETCH_RANDOM_BOOKS,
+        help="Queue unprocessed books automatically when the explicit queue is empty.",
+    )
+    parser.add_argument(
+        "--reconcile-embedding-version",
+        action="store_true",
+        default=settings.RAG_RECONCILE_ON_START,
+        help="Reconcile embedding signature at startup and invalidate stale embeddings if needed.",
     )
     args = parser.parse_args()
 
@@ -190,6 +219,8 @@ def main() -> int:
         processed = process_nightly_embeddings(
             continuous=args.continuous,
             idle_sleep_seconds=args.idle_sleep,
+            prefetch_random_books=args.prefetch_random,
+            reconcile_on_start=args.reconcile_embedding_version,
         )
         print(f"Processed {processed} book(s)")
         return 0

@@ -1,5 +1,5 @@
 import httpx
-from typing import Any, List, Optional
+from typing import Any, Callable, List, Optional
 from pathlib import Path
 
 from app.config import settings
@@ -27,6 +27,10 @@ class ContextLengthExceededError(Exception):
     its character count suggests, overflowing the model's context length even
     when CHUNK_SIZE looks safe. Callers can catch this and split the text.
     """
+
+
+class EmbeddingRunInterrupted(BaseException):
+    """Raised when a scheduled embedding run must stop without failing the item."""
 
 
 class EmbeddingService:
@@ -200,7 +204,12 @@ class EmbeddingService:
             "new_signature": current_sig,
         }
     
-    def generate_embeddings_for_book(self, book_id: int, pdf_path: Path) -> int:
+    def generate_embeddings_for_book(
+        self,
+        book_id: int,
+        pdf_path: Path,
+        should_stop: Optional[Callable[[], bool]] = None,
+    ) -> int:
         """Generate and store embeddings for all chunks of a book."""
         try:
             logger.info(
@@ -237,6 +246,10 @@ class EmbeddingService:
             # whole book.
             stored = 0
             for index, chunk in enumerate(chunks, start=1):
+                if should_stop and should_stop():
+                    raise EmbeddingRunInterrupted(
+                        f"Embedding run interrupted before chunk {index}/{total_chunks}"
+                    )
                 stored += self._embed_and_store_chunk(
                     book_id, stored, chunk, expected_dim
                 )
@@ -404,7 +417,11 @@ class EmbeddingService:
             for result in results:
                 result["citation"] = self._format_citation(result)
             
-            logger.info(f"Semantic search for '{query}' returned {len(results)} results")
+            logger.info(
+                "Semantic search returned %s results",
+                len(results),
+                extra={"operation": "semantic_search", "query_length": len(query or "")},
+            )
             return results
         except Exception as e:
             logger.error(f"Error in semantic search: {e}")
@@ -466,7 +483,13 @@ class EmbeddingService:
             logger.error(f"Error queuing embedding generation for book {book_id}: {e}")
             raise
     
-    def process_queue_item(self, queue_id: int, book_id: int, pdf_path: Path) -> int:
+    def process_queue_item(
+        self,
+        queue_id: int,
+        book_id: int,
+        pdf_path: Path,
+        should_stop: Optional[Callable[[], bool]] = None,
+    ) -> int:
         """Process a single queue item (background task)."""
         try:
             logger.info(
@@ -481,7 +504,7 @@ class EmbeddingService:
             postgres_db.update_queue_status(queue_id, 'processing')
             
             # Generate embeddings
-            chunk_count = self.generate_embeddings_for_book(book_id, pdf_path)
+            chunk_count = self.generate_embeddings_for_book(book_id, pdf_path, should_stop)
             
             # Update status to completed
             postgres_db.update_queue_status(queue_id, 'completed')

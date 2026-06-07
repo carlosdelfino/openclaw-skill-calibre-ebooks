@@ -27,7 +27,7 @@ async def get_embedding_model_info():
         return EmbeddingModelInfoResponse(**embedding_service.get_version_info())
     except Exception as e:
         logger.error(f"Error getting embedding model info: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/reindex", response_model=EmbeddingReindexResponse)
@@ -42,7 +42,7 @@ async def reindex_embeddings():
         return EmbeddingReindexResponse(**embedding_service.reconcile_embedding_version())
     except Exception as e:
         logger.error(f"Error reindexing embeddings: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/status/{book_id}", response_model=EmbeddingStatusResponse)
@@ -53,7 +53,7 @@ async def get_embedding_status(book_id: int):
         return EmbeddingStatusResponse(**status)
     except Exception as e:
         logger.error(f"Error checking embedding status for book {book_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/generate/{book_id}", response_model=EmbeddingQueueResponse)
@@ -88,7 +88,7 @@ async def generate_embeddings(book_id: int, background_tasks: BackgroundTasks):
         raise
     except Exception as e:
         logger.error(f"Error queuing embedding generation for book {book_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/queue", response_model=list[QueueItemResponse])
@@ -99,7 +99,7 @@ async def get_queue(limit: int = 20):
         return [QueueItemResponse(**item) for item in queue_items]
     except Exception as e:
         logger.error(f"Error getting queue: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/queue/{book_id}", response_model=QueueItemResponse)
@@ -114,4 +114,4 @@ async def get_book_queue_status(book_id: int):
         raise
     except Exception as e:
         logger.error(f"Error getting queue status for book {book_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")

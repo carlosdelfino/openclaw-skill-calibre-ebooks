@@ -173,7 +173,7 @@ async def get_database_stats() -> Dict[str, Any]:
             }
     except Exception as e:
         logger.error(f"Error getting database stats: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/queries")
@@ -191,7 +191,7 @@ async def get_query_stats() -> Dict[str, Any]:
         }
     except Exception as e:
         logger.error(f"Error getting query stats: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/library")
@@ -310,7 +310,7 @@ async def get_library_summary() -> Dict[str, Any]:
             }
     except Exception as e:
         logger.error(f"Error getting library summary stats: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.get("/overview")
@@ -336,4 +336,4 @@ async def get_overview_stats() -> Dict[str, Any]:
         }
     except Exception as e:
         logger.error(f"Error getting overview stats: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")

@@ -1,34 +1,54 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pathlib import Path
 from typing import Optional
 import os
+from urllib.parse import quote, urlparse
 
 
 class Settings(BaseSettings):
     # Calibre OpenClaw Server
-    CALIBRE_DB_PATH: str = Field(default="/mnt/Backup_2/Biblioteca/metadata.db")
-    CALIBRE_LIBRARY_PATH: str = Field(default="/mnt/Backup_2/Biblioteca")
+    CALIBRE_DB_PATH: str = Field(default="")
+    CALIBRE_LIBRARY_PATH: str = Field(default="")
     SERVER_PORT: int = Field(default=6180)
-    SERVER_HOST: str = Field(default="0.0.0.0")
+    SERVER_HOST: str = Field(default="127.0.0.1")
+
+    # API security
+    API_KEY: Optional[SecretStr] = Field(default=None)
+    ALLOW_UNAUTHENTICATED: bool = Field(default=False)
+    CORS_ALLOW_ORIGINS: str = Field(default="http://127.0.0.1:6180,http://localhost:6180")
+    CORS_ALLOW_CREDENTIALS: bool = Field(default=False)
+    ALLOW_BOOK_CONTENT_DOWNLOADS: bool = Field(default=False)
+    ENABLE_NETWORK_BINDINGS_ENDPOINT: bool = Field(default=False)
+    ENABLE_NETWORK_BINDINGS_MONITOR: bool = Field(default=False)
+    ALLOW_GET_AUTO_SYNC: bool = Field(default=False)
+    PUBLIC_HEALTHCHECK: bool = Field(default=False)
     
     # Ollama
     OLLAMA_HOST: str = Field(default="http://localhost:11434")
     OLLAMA_MODEL: str = Field(default="nomic-embed-text-v2-moe:latest")
+    ALLOW_REMOTE_OLLAMA: bool = Field(default=False)
     
     # Embeddings
     CHUNK_SIZE: int = Field(default=500)
     CHUNK_OVERLAP: int = Field(default=50)
     SIMILARITY_THRESHOLD: float = Field(default=0.3)
+    RAG_STOP_AT_LOCAL: str = Field(default="")
+    RAG_IDLE_SLEEP_SECONDS: int = Field(default=60)
+    RAG_TIMER_ON_CALENDAR: str = Field(default="")
+    RAG_RUNTIME_MAX_SEC: str = Field(default="")
+    RAG_PREFETCH_RANDOM_BOOKS: bool = Field(default=False)
+    RAG_RECONCILE_ON_START: bool = Field(default=False)
+    INSTALL_NIGHTLY_EMBEDDINGS: bool = Field(default=False)
     # Manual version counter for the embedding pipeline. Bump this (or change
     # OLLAMA_MODEL / chunk settings) to force every stored embedding to be
     # invalidated and regenerated with the new configuration.
     EMBEDDING_VERSION: int = Field(default=1)
     
     # PostgreSQL
-    POSTGRESQL_DB_USER: str = Field(default="generativa")
-    POSTGRESQL_DB_PASSWD: str = Field(default="")
-    POSTGRESQL_DB_DATABASE: str = Field(default="rapport_biblioteca")
+    POSTGRESQL_DB_USER: str = Field(default="")
+    POSTGRESQL_DB_PASSWD: SecretStr = Field(default=SecretStr(""))
+    POSTGRESQL_DB_DATABASE: str = Field(default="")
     POSTGRESQL_DB_HOST: str = Field(default="localhost")
     POSTGRESQL_DB_PORT: int = Field(default=5432)
     
@@ -40,11 +60,49 @@ class Settings(BaseSettings):
     
     @property
     def postgres_dsn(self) -> str:
-        return f"postgresql://{self.POSTGRESQL_DB_USER}:{self.POSTGRESQL_DB_PASSWD}@{self.POSTGRESQL_DB_HOST}:{self.POSTGRESQL_DB_PORT}/{self.POSTGRESQL_DB_DATABASE}"
+        user = quote(self.POSTGRESQL_DB_USER, safe="")
+        password = quote(self.POSTGRESQL_DB_PASSWD.get_secret_value(), safe="")
+        host = self.POSTGRESQL_DB_HOST
+        port = self.POSTGRESQL_DB_PORT
+        database = quote(self.POSTGRESQL_DB_DATABASE, safe="")
+        return f"postgresql://{user}:{password}@{host}:{port}/{database}"
+
+    @property
+    def api_key_value(self) -> Optional[str]:
+        if self.API_KEY is None:
+            return None
+        value = self.API_KEY.get_secret_value().strip()
+        return value or None
+
+    @property
+    def cors_allow_origins_list(self) -> list[str]:
+        return [
+            origin.strip()
+            for origin in self.CORS_ALLOW_ORIGINS.split(",")
+            if origin.strip()
+        ]
     
     @property
     def log_dir_path(self) -> Path:
         return Path(self.LOG_DIR)
+
+    def validate_security(self) -> None:
+        weak_passwords = {"", "password", "your_password", "your_password_here", "changeme", "change-me"}
+        if not self.CALIBRE_DB_PATH:
+            raise RuntimeError("CALIBRE_DB_PATH must be configured in .env")
+        if not self.CALIBRE_LIBRARY_PATH:
+            raise RuntimeError("CALIBRE_LIBRARY_PATH must be configured in .env")
+        if not self.POSTGRESQL_DB_USER or not self.POSTGRESQL_DB_DATABASE:
+            raise RuntimeError("PostgreSQL user and database must be configured in .env")
+        if self.POSTGRESQL_DB_PASSWD.get_secret_value().strip().lower() in weak_passwords:
+            raise RuntimeError("POSTGRESQL_DB_PASSWD must be set to a non-default strong password")
+        if not self.ALLOW_UNAUTHENTICATED and not self.api_key_value:
+            raise RuntimeError("API_KEY must be set, or ALLOW_UNAUTHENTICATED=true must be explicitly configured")
+        if "*" in self.cors_allow_origins_list and self.CORS_ALLOW_CREDENTIALS:
+            raise RuntimeError("CORS_ALLOW_CREDENTIALS=true cannot be used with wildcard CORS origins")
+        ollama_host = urlparse(self.OLLAMA_HOST).hostname
+        if not self.ALLOW_REMOTE_OLLAMA and ollama_host not in {"localhost", "127.0.0.1", "::1"}:
+            raise RuntimeError("OLLAMA_HOST must be local unless ALLOW_REMOTE_OLLAMA=true is explicitly configured")
     
     model_config = SettingsConfigDict(
         env_file=None,

@@ -26,10 +26,7 @@ class PostgreSQLDB:
                 dsn=settings.postgres_dsn
             )
             logger.info("PostgreSQL connection pool initialized")
-            # Ensure settings table exists
-            self._ensure_settings_table()
-            # Ensure embedding bookkeeping columns exist
-            self._ensure_embeddings_schema()
+            self._ensure_schema()
     
     @contextmanager
     def get_connection(self):
@@ -55,19 +52,73 @@ class PostgreSQLDB:
             self._pool = None
             logger.info("PostgreSQL connection pool closed")
     
-    def _ensure_settings_table(self):
-        """Ensure the settings table exists."""
-        query = """
-        CREATE TABLE IF NOT EXISTS settings (
-            key VARCHAR(255) PRIMARY KEY,
-            value TEXT,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """
+    def _ensure_schema(self):
+        """Ensure the application schema exists in the configured database."""
+        queries = [
+            "CREATE EXTENSION IF NOT EXISTS vector",
+            """
+            CREATE TABLE IF NOT EXISTS settings (
+                key VARCHAR(255) PRIMARY KEY,
+                value TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS books (
+                id SERIAL PRIMARY KEY,
+                calibre_id INTEGER UNIQUE,
+                title TEXT NOT NULL,
+                author TEXT,
+                file_path TEXT NOT NULL,
+                file_size BIGINT,
+                file_type TEXT,
+                metadata JSONB,
+                indexed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS book_chunks (
+                id SERIAL PRIMARY KEY,
+                book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+                chunk_index INTEGER NOT NULL,
+                content TEXT NOT NULL,
+                embedding vector(768),
+                embedding_model TEXT,
+                page_start INTEGER,
+                page_end INTEGER,
+                section_title TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (book_id, chunk_index)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS processing_queue (
+                id SERIAL PRIMARY KEY,
+                book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+                status TEXT NOT NULL DEFAULT 'pending',
+                priority INTEGER NOT NULL DEFAULT 0,
+                error_message TEXT,
+                started_at TIMESTAMP,
+                completed_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_books_calibre_id ON books(calibre_id)",
+            "CREATE INDEX IF NOT EXISTS idx_books_title ON books(title)",
+            "CREATE INDEX IF NOT EXISTS idx_book_chunks_book_id ON book_chunks(book_id)",
+            "CREATE INDEX IF NOT EXISTS idx_book_chunks_embedding ON book_chunks USING ivfflat (embedding vector_cosine_ops) WHERE embedding IS NOT NULL",
+            "CREATE INDEX IF NOT EXISTS idx_processing_queue_status_priority ON processing_queue(status, priority DESC, created_at)",
+            "CREATE INDEX IF NOT EXISTS idx_processing_queue_book_id ON processing_queue(book_id)",
+        ]
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(query)
-            logger.info("Settings table ensured")
+            for query in queries:
+                cursor.execute(query)
+            logger.info(
+                "Application schema ensured in PostgreSQL database '%s'",
+                settings.POSTGRESQL_DB_DATABASE,
+            )
     
     def _ensure_embeddings_schema(self):
         """Ensure embedding bookkeeping columns exist (idempotent migration)."""

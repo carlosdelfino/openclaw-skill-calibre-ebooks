@@ -1,10 +1,12 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from typing import Dict, Set
 import asyncio
+import hmac
 import json
 from datetime import datetime
 
 from app.api.routes.stats import get_database_stats, get_query_stats
+from app.config import settings
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -64,9 +66,32 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+def websocket_api_key(websocket: WebSocket) -> str:
+    auth_header = websocket.headers.get("authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        return auth_header[7:].strip()
+    return (
+        websocket.headers.get("x-api-key", "").strip()
+        or websocket.query_params.get("api_key", "").strip()
+    )
+
+
+async def require_websocket_api_key(websocket: WebSocket) -> bool:
+    if settings.ALLOW_UNAUTHENTICATED:
+        return True
+    configured_key = settings.api_key_value
+    supplied_key = websocket_api_key(websocket)
+    if configured_key and supplied_key and hmac.compare_digest(supplied_key, configured_key):
+        return True
+    await websocket.close(code=1008, reason="Authentication required")
+    return False
+
+
 @router.websocket("/ws/stats")
 async def websocket_stats(websocket: WebSocket):
     """WebSocket endpoint for real-time statistics updates."""
+    if not await require_websocket_api_key(websocket):
+        return
     await manager.connect(websocket)
     
     try:

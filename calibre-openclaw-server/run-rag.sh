@@ -25,7 +25,6 @@ echo ""
 if [ ! -d "$VENV_DIR" ]; then
     echo -e "${YELLOW}Virtual environment not found. Creating...${NC}"
     python3 -m venv "$VENV_DIR"
-    "$VENV_PYTHON" -m pip install --upgrade pip --no-cache-dir
     echo -e "${GREEN}✓ Virtual environment created at $VENV_DIR${NC}"
 else
     echo -e "${GREEN}✓ Virtual environment found at $VENV_DIR${NC}"
@@ -53,9 +52,18 @@ if [ -z "$ENV_FILE" ]; then
 fi
 
 export ENV_DIR="$(dirname "$ENV_FILE")"
-set -a
-source "$ENV_FILE"
-set +a
+
+env_value() {
+    local key="$1"
+    local line value
+    line="$(grep -E "^${key}=" "$ENV_FILE" | tail -n 1 || true)"
+    value="${line#*=}"
+    value="${value%\"}"
+    value="${value#\"}"
+    value="${value%\'}"
+    value="${value#\'}"
+    printf '%s' "$value"
+}
 
 if [ ! -f "requirements.txt" ]; then
     echo -e "${RED}ERROR: requirements.txt not found!${NC}"
@@ -80,12 +88,22 @@ for package in fastapi uvicorn pydantic psycopg2 fitz httpx; do
 done
 
 if [ "$missing_packages" -gt 0 ]; then
-    echo "Installing missing dependencies from requirements.txt..."
-    "$VENV_PIP" install -r requirements.txt
+    ALLOW_RUNTIME_PIP_INSTALL="$(env_value ALLOW_RUNTIME_PIP_INSTALL)"
+    if [[ "$ALLOW_RUNTIME_PIP_INSTALL" =~ ^(1|true|TRUE|yes|YES|s|sim)$ ]]; then
+        echo "Installing missing dependencies from requirements.txt..."
+        "$VENV_PIP" install -r requirements.txt
+    else
+        echo -e "${RED}ERROR: Missing dependencies and runtime pip install is disabled.${NC}"
+        echo "Set ALLOW_RUNTIME_PIP_INSTALL=true explicitly or run manually:"
+        echo "  $VENV_PIP install -r requirements.txt"
+        exit 1
+    fi
 fi
 
-OLLAMA_URL="${OLLAMA_HOST:-http://localhost:11434}"
-OLLAMA_MODEL_NAME="${OLLAMA_MODEL:-nomic-embed-text-v2-moe:latest}"
+OLLAMA_URL="$(env_value OLLAMA_HOST)"
+OLLAMA_URL="${OLLAMA_URL:-http://localhost:11434}"
+OLLAMA_MODEL_NAME="$(env_value OLLAMA_MODEL)"
+OLLAMA_MODEL_NAME="${OLLAMA_MODEL_NAME:-nomic-embed-text-v2-moe:latest}"
 
 if curl -s "$OLLAMA_URL/api/tags" > /dev/null 2>&1; then
     echo -e "${GREEN}✓ Ollama is running at $OLLAMA_URL${NC}"
@@ -100,11 +118,18 @@ else
     echo "  Start it before running embeddings."
 fi
 
-PGUSER="${POSTGRESQL_DB_USER:-generativa}"
-PGPASSWORD="${POSTGRESQL_DB_PASSWD:-}"
-PGDATABASE="${POSTGRESQL_DB_DATABASE:-rapport_biblioteca}"
-PGHOST="${POSTGRESQL_DB_HOST:-localhost}"
-PGPORT="${POSTGRESQL_DB_PORT:-5432}"
+PGUSER="$(env_value POSTGRESQL_DB_USER)"
+PGPASSWORD="$(env_value POSTGRESQL_DB_PASSWD)"
+PGDATABASE="$(env_value POSTGRESQL_DB_DATABASE)"
+PGHOST="$(env_value POSTGRESQL_DB_HOST)"
+PGHOST="${PGHOST:-localhost}"
+PGPORT="$(env_value POSTGRESQL_DB_PORT)"
+PGPORT="${PGPORT:-5432}"
+
+if [ -z "$PGUSER" ] || [ -z "$PGDATABASE" ]; then
+    echo -e "${RED}ERROR: POSTGRESQL_DB_USER and POSTGRESQL_DB_DATABASE must be configured in $ENV_FILE${NC}"
+    exit 1
+fi
 
 if PGPASSWORD="$PGPASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" -c "SELECT 1" > /dev/null 2>&1; then
     echo -e "${GREEN}✓ PostgreSQL is accessible${NC}"
@@ -114,7 +139,8 @@ else
     exit 1
 fi
 
-CALIBRE_DB="${CALIBRE_DB_PATH:-/mnt/Backup_2/Biblioteca/metadata.db}"
+CALIBRE_DB="$(env_value CALIBRE_DB_PATH)"
+CALIBRE_DB="${CALIBRE_DB:-/mnt/Backup_2/Biblioteca/metadata.db}"
 if [ -f "$CALIBRE_DB" ]; then
     echo -e "${GREEN}✓ Calibre metadata.db found at $CALIBRE_DB${NC}"
 else
@@ -128,4 +154,43 @@ echo "Checks passed. Running RAG embedding worker..."
 echo "==========================================${NC}"
 echo ""
 
-"$VENV_PYTHON" -m app.nightly_embeddings --continuous "$@"
+RAG_ARGS=(--continuous)
+
+RAG_RUN_IDLE_SLEEP="$(env_value RAG_RUN_IDLE_SLEEP_SECONDS)"
+if [ -n "$RAG_RUN_IDLE_SLEEP" ]; then
+    RAG_ARGS+=(--idle-sleep "$RAG_RUN_IDLE_SLEEP")
+fi
+
+HAS_STOP_ARG=0
+for arg in "$@"; do
+    case "$arg" in
+        --stop-at-local|--stop-at-local=*|--no-stop-at-local)
+            HAS_STOP_ARG=1
+            ;;
+    esac
+done
+
+if [ "$HAS_STOP_ARG" -eq 0 ]; then
+    RAG_RUN_STOP_AT_LOCAL="$(env_value RAG_RUN_STOP_AT_LOCAL)"
+    if [ -n "$RAG_RUN_STOP_AT_LOCAL" ]; then
+        RAG_ARGS+=(--stop-at-local "$RAG_RUN_STOP_AT_LOCAL")
+    else
+        RAG_ARGS+=(--no-stop-at-local)
+    fi
+fi
+
+RAG_PREFETCH_RANDOM_BOOKS="$(env_value RAG_PREFETCH_RANDOM_BOOKS)"
+case "$RAG_PREFETCH_RANDOM_BOOKS" in
+    1|true|TRUE|yes|YES|s|sim)
+        RAG_ARGS+=(--prefetch-random)
+        ;;
+esac
+
+RAG_RECONCILE_ON_START="$(env_value RAG_RECONCILE_ON_START)"
+case "$RAG_RECONCILE_ON_START" in
+    1|true|TRUE|yes|YES|s|sim)
+        RAG_ARGS+=(--reconcile-embedding-version)
+        ;;
+esac
+
+"$VENV_PYTHON" -m app.nightly_embeddings "${RAG_ARGS[@]}" "$@"

@@ -22,7 +22,7 @@ async def search_books(query: str, limit: int = 50):
         raise
     except Exception as e:
         logger.error(f"Error searching books with query '{query}': {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/content", response_model=list[SearchResult])
@@ -43,4 +43,4 @@ async def search_content(request: ContentSearchRequest):
         raise
     except Exception as e:
         logger.error(f"Error in content search with query '{request.query}': {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")

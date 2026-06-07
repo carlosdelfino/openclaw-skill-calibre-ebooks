@@ -1,22 +1,36 @@
 """Nightly embedding prefetch worker.
 
-Processes queued embedding requests first. If no queued book needs work, it
-queues one random book without embeddings so the library is gradually prepared.
+Processes queued embedding requests first. Optional prefetch mode can queue
+unprocessed books so the library is gradually prepared.
 """
 
 from pathlib import Path
 from typing import Optional
 import argparse
+import signal
 import time
+from datetime import datetime, time as local_time
 
+from app.config import settings
 from app.database.postgres_db import postgres_db
 from app.services.book_service import book_service
 from app.services.conversion_service import conversion_service
-from app.services.embedding_service import embedding_service
+from app.services.embedding_service import EmbeddingRunInterrupted, embedding_service
 from app.utils.logger import get_logger, setup_logger
 
 setup_logger(__name__)
 logger = get_logger(__name__)
+_stop_requested = False
+
+
+def _request_stop(signum, _frame):
+    global _stop_requested
+    _stop_requested = True
+    logger.warning("Received signal %s; stopping nightly embeddings at the next safe point", signum)
+
+
+signal.signal(signal.SIGTERM, _request_stop)
+signal.signal(signal.SIGINT, _request_stop)
 
 
 def _pdf_path_for_book(book_id: int) -> tuple[Optional[Path], Optional[str]]:
@@ -65,25 +79,63 @@ def _cleanup_interrupted_item(queue_id: int, book_id: int):
     )
 
 
-def process_nightly_embeddings(continuous: bool = False, idle_sleep_seconds: int = 60) -> int:
+def _parse_local_time(value: Optional[str]) -> Optional[local_time]:
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%H:%M").time()
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("time must be in HH:MM format") from exc
+
+
+def _deadline_reached(stop_at_local: Optional[local_time]) -> bool:
+    if _stop_requested:
+        return True
+    if not stop_at_local:
+        return False
+    return datetime.now().time() >= stop_at_local
+
+
+def process_nightly_embeddings(
+    continuous: bool = False,
+    idle_sleep_seconds: int = 60,
+    stop_at_local: Optional[local_time] = None,
+    prefetch_random_books: bool = False,
+    reconcile_on_start: bool = False,
+) -> int:
     """Process embedding work, optionally looping until interrupted."""
     processed_books = 0
     total_embeddings = 0
     total_pages = 0
 
-    # Reconcile embedding version: if the model/config changed, stale embeddings
-    # are invalidated here so this worker regenerates them with the new model.
-    try:
-        result = embedding_service.reconcile_embedding_version()
-        logger.info("Embedding version reconciliation: %s", result)
-    except Exception as exc:
-        logger.error("Embedding version reconciliation failed: %s", exc)
+    if reconcile_on_start:
+        try:
+            result = embedding_service.reconcile_embedding_version()
+            logger.info("Embedding version reconciliation: %s", result)
+        except Exception as exc:
+            logger.error("Embedding version reconciliation failed: %s", exc)
+    else:
+        logger.info("Embedding version reconciliation skipped; enable RAG_RECONCILE_ON_START to run it")
 
     while True:
+        if _deadline_reached(stop_at_local):
+            logger.warning("Nightly embedding stop time reached; ending run before starting another item")
+            break
+
         queue_items = postgres_db.get_pending_queue_items(limit=1)
         if not queue_items:
             if not continuous and processed_books > 0:
                 break
+
+            if not prefetch_random_books:
+                if not continuous:
+                    break
+                logger.info(
+                    "No pending queue items. Random prefetch is disabled; sleeping %s second(s).",
+                    idle_sleep_seconds,
+                )
+                time.sleep(idle_sleep_seconds)
+                continue
 
             if not _ensure_random_book_queued():
                 if not continuous:
@@ -129,7 +181,12 @@ def process_nightly_embeddings(continuous: bool = False, idle_sleep_seconds: int
         )
 
         try:
-            chunk_count = embedding_service.process_queue_item(queue_id, book_id, pdf_path)
+            chunk_count = embedding_service.process_queue_item(
+                queue_id,
+                book_id,
+                pdf_path,
+                should_stop=lambda: _deadline_reached(stop_at_local),
+            )
             processed_books += 1
             total_embeddings += chunk_count
             total_pages += page_count
@@ -146,9 +203,9 @@ def process_nightly_embeddings(continuous: bool = False, idle_sleep_seconds: int
                 embeddings_per_book,
                 total_embeddings,
             )
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, EmbeddingRunInterrupted):
             _cleanup_interrupted_item(queue_id, book_id)
-            raise
+            break
         except Exception as exc:
             logger.error(
                 "Nightly embedding queue item %s for book %s failed; continuing: %s",
@@ -181,15 +238,45 @@ def main() -> int:
     parser.add_argument(
         "--idle-sleep",
         type=int,
-        default=60,
+        default=settings.RAG_IDLE_SLEEP_SECONDS,
         help="Seconds to wait before checking again when continuous mode has no work.",
     )
+    parser.add_argument(
+        "--stop-at-local",
+        type=_parse_local_time,
+        default=_parse_local_time(settings.RAG_STOP_AT_LOCAL),
+        help=(
+            "Stop before starting more work after local HH:MM; current item is returned to pending if interrupted. "
+            "Defaults to RAG_STOP_AT_LOCAL from the environment when set."
+        ),
+    )
+    parser.add_argument(
+        "--no-stop-at-local",
+        action="store_true",
+        help="Disable the local stop time. Intended for manual daytime runs.",
+    )
+    parser.add_argument(
+        "--prefetch-random",
+        action="store_true",
+        default=settings.RAG_PREFETCH_RANDOM_BOOKS,
+        help="Queue unprocessed books automatically when the explicit queue is empty.",
+    )
+    parser.add_argument(
+        "--reconcile-embedding-version",
+        action="store_true",
+        default=settings.RAG_RECONCILE_ON_START,
+        help="Reconcile embedding signature at startup and invalidate stale embeddings if needed.",
+    )
     args = parser.parse_args()
+    stop_at_local = None if args.no_stop_at_local else args.stop_at_local
 
     try:
         processed = process_nightly_embeddings(
             continuous=args.continuous,
             idle_sleep_seconds=args.idle_sleep,
+            stop_at_local=stop_at_local,
+            prefetch_random_books=args.prefetch_random,
+            reconcile_on_start=args.reconcile_embedding_version,
         )
         print(f"Processed {processed} book(s)")
         return 0

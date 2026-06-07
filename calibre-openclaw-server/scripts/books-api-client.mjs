@@ -1,10 +1,14 @@
 #!/usr/bin/env node
 
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:6180";
+const DEFAULT_OUTPUT_ROOT = resolve("skills/calibre-ebooks/tmp/downloads");
+const TMP_OUTPUT_ROOT = "/tmp/calibre-ebooks";
 const QUERY_NAMES = ["q", "query", "search", "term", "text", "title", "author", "tag", "tags", "subject"];
 const LIMIT_NAMES = ["limit", "page_size", "pageSize", "per_page", "perPage", "size", "count"];
+let globalOptions = {};
 
 function usage() {
   console.error(`Usage:
@@ -13,10 +17,11 @@ function usage() {
   node skills/calibre-ebooks/scripts/books-api-client.mjs paths
   node skills/calibre-ebooks/scripts/books-api-client.mjs search "term" --limit 10
   node skills/calibre-ebooks/scripts/books-api-client.mjs book 123
-  node skills/calibre-ebooks/scripts/books-api-client.mjs request GET /path --query key=value --body '{"x":1}'
+  node skills/calibre-ebooks/scripts/books-api-client.mjs request GET /api/books --query limit=100
 
 Options:
   --base URL       Override BOOKS_API_URL or ${DEFAULT_BASE_URL}
+  --api-key KEY    Override BOOKS_API_KEY/API_KEY for authenticated requests
   --query k=v      Add query parameter, repeatable
   --body JSON      JSON request body for request
   --limit N        Search result limit when the endpoint exposes a limit parameter
@@ -31,6 +36,7 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--base") options.base = argv[++i];
+    else if (arg === "--api-key") options.apiKey = argv[++i];
     else if (arg === "--query") options.query.push(argv[++i]);
     else if (arg === "--body") options.body = argv[++i];
     else if (arg === "--limit") options.limit = argv[++i];
@@ -46,7 +52,15 @@ function baseUrl(options) {
   return String(options.base || process.env.BOOKS_API_URL || DEFAULT_BASE_URL).replace(/\/+$/, "");
 }
 
+function authHeaders(options) {
+  const token = String(options.apiKey || process.env.BOOKS_API_KEY || process.env.API_KEY || "").trim();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 function apiUrl(base, path, params = {}) {
+  if (/^https?:\/\//i.test(path)) {
+    throw new Error("Full URLs are not allowed here; pass an API path such as /api/books");
+  }
   const url = new URL(path.startsWith("/") ? `${base}${path}` : path);
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== "") url.searchParams.set(key, String(value));
@@ -55,6 +69,7 @@ function apiUrl(base, path, params = {}) {
 }
 
 async function fetchResponse(url, init = {}) {
+  init.headers = { ...authHeaders(globalOptions), ...(init.headers || {}) };
   let response;
   try {
     response = await fetch(url, init);
@@ -194,8 +209,21 @@ async function commandBook(base, openapi, id) {
 }
 
 async function commandRequest(base, method, path, options) {
+  if (/^https?:\/\//i.test(path)) {
+    throw new Error("Full URLs are not allowed for request; pass a local /api/... path.");
+  }
+  if (!path.startsWith("/api/")) {
+    throw new Error("request is limited to /api/... paths.");
+  }
+  const normalizedMethod = method.toUpperCase();
+  if (normalizedMethod !== "GET" && !/^(1|true|yes|s|sim)$/i.test(process.env.ALLOW_MUTATING_API_REQUESTS || "")) {
+    throw new Error("Mutating API requests are disabled. Set ALLOW_MUTATING_API_REQUESTS=true to enable them.");
+  }
+  if (options.body !== undefined && normalizedMethod === "GET") {
+    throw new Error("GET requests cannot include --body.");
+  }
   const headers = {};
-  const init = { method: method.toUpperCase(), headers };
+  const init = { method: normalizedMethod, headers };
   const params = parseQueryPairs(options.query);
 
   if (options.body !== undefined) {
@@ -208,16 +236,27 @@ async function commandRequest(base, method, path, options) {
 
   if (options.output) {
     const buffer = Buffer.from(await response.arrayBuffer());
-    await writeFile(options.output, buffer);
-    return { output: options.output, bytes: buffer.length, contentType };
+    const outputPath = checkedOutputPath(options.output);
+    await mkdir(dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, buffer);
+    return { output: outputPath, bytes: buffer.length, contentType };
   }
 
   if (contentType.includes("application/json")) return response.json();
   return response.text();
 }
 
+function checkedOutputPath(path) {
+  const outputPath = resolve(path);
+  if (/^(1|true|yes|s|sim)$/i.test(process.env.ALLOW_ARBITRARY_OUTPUT_PATH || "")) return outputPath;
+  if (outputPath.startsWith(`${DEFAULT_OUTPUT_ROOT}/`) || outputPath === DEFAULT_OUTPUT_ROOT) return outputPath;
+  if (outputPath.startsWith(`${TMP_OUTPUT_ROOT}/`) || outputPath === TMP_OUTPUT_ROOT) return outputPath;
+  throw new Error("Refusing to write outside skills/calibre-ebooks/tmp/downloads or /tmp/calibre-ebooks. Set ALLOW_ARBITRARY_OUTPUT_PATH=true to override.");
+}
+
 async function main() {
   const { positional, options } = parseArgs(process.argv.slice(2));
+  globalOptions = options;
   if (options.help || positional.length === 0) {
     usage();
     return options.help ? 0 : 2;

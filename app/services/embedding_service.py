@@ -289,7 +289,11 @@ class EmbeddingService:
             # Perform semantic search in PostgreSQL
             results = postgres_db.semantic_search(query_embedding, limit, threshold)
             
-            logger.info(f"Semantic search for '{query}' returned {len(results)} results")
+            logger.info(
+                "Semantic search returned %s results",
+                len(results),
+                extra={"operation": "semantic_search", "query_length": len(query or "")},
+            )
             return results
         except Exception as e:
             logger.error(f"Error in semantic search: {e}")

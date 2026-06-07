@@ -244,7 +244,7 @@ class DocumentConverter:
     def __init__(self, data_dir: str = None, embedding_model: str = None,
                  converted_dir: str = None, tesseract_lang: str = "por", 
                  chunk_size: int = 500, chunk_overlap: int = 50, command_type: str = "full",
-                 allow_model_mismatch: bool = False):
+                 allow_model_mismatch: bool = False, allow_model_pull: bool = False):
         # Load skill environment variables first. A .env from CWD can complement
         # without overwriting this skill's specific configuration.
         skill_env = SKILL_DIR / '.env'
@@ -265,6 +265,7 @@ class DocumentConverter:
         self.chunk_overlap = int(os.getenv('CHUNK_OVERLAP', str(chunk_overlap)))
         self.similarity_threshold = float(os.getenv('SIMILARITY_THRESHOLD', '0.3'))
         self.allow_model_mismatch = allow_model_mismatch or os.getenv('RAG_ALLOW_MODEL_MISMATCH', '').lower() in {'1', 'true', 'yes', 's', 'sim'}
+        self.allow_model_pull = allow_model_pull or os.getenv('RAG_ALLOW_MODEL_PULL', '').lower() in {'1', 'true', 'yes', 's', 'sim'}
         
         # Configure converted documents folder
         if converted_dir:
@@ -366,6 +367,9 @@ class DocumentConverter:
             # Check available models
             result = subprocess.run(['ollama', 'list'], capture_output=True, text=True)
             if self.embedding_model not in result.stdout:
+                if not self.allow_model_pull:
+                    self._log(f"Model {self.embedding_model} not found. Run 'ollama pull {self.embedding_model}' or enable RAG_ALLOW_MODEL_PULL.", "ERROR")
+                    raise Exception("Ollama model is missing and automatic model pull is disabled")
                 self._log(f"Model {self.embedding_model} not found. Installing...", "WARN")
                 self._show_progress(0, 1, "Installing model", self.embedding_model)
                 install_result = subprocess.run(['ollama', 'pull', self.embedding_model], 
@@ -1456,7 +1460,7 @@ class DocumentConverter:
     
     def search_documents(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         """Hybrid search: exact text (SQLite) + semantic (ChromaDB)."""
-        log_event('INFO', 'Searching for', query=query)
+        log_event('INFO', 'Searching documents', query_length=len(query or ''))
         
         # 1. Exact/partial text search in SQLite
         text_results = self._search_text(query, top_k)
@@ -1681,6 +1685,8 @@ def main():
     parser.add_argument('--status', action='store_true', help='Show RAG base status')
     parser.add_argument('--check', action='store_true', help='Check dependencies without initializing RAG base')
     parser.add_argument('--delete', type=str, help='Remove a book by ID')
+    parser.add_argument('--allow-recursive-convert', action='store_true', help='Allow recursive directory ingestion with --convert-all or directory targets')
+    parser.add_argument('--yes-delete', action='store_true', help='Confirm destructive deletion of generated RAG artifacts')
     parser.add_argument('--data-dir', type=str, help=f'Data directory (default: DATA_DIR or {DEFAULT_DATA_DIR})')
     parser.add_argument('--converted-dir', type=str, help=f'Folder for converted files (default: CONVERTED_DIR or {DEFAULT_CONVERTED_DIR})')
     parser.add_argument('--lang', type=str, default='por', help='OCR language (default: por)')
@@ -1688,6 +1694,7 @@ def main():
     parser.add_argument('--chunk-overlap', type=int, help='Overlap between chunks (default: 50)')
     parser.add_argument('--embedding-model', type=str, help='Embedding model (default: OLLAMA_MODEL or nomic-embed-text-v2-moe)')
     parser.add_argument('--allow-model-mismatch', action='store_true', help='Allow continuing when current model differs from model stored in base')
+    parser.add_argument('--allow-model-pull', action='store_true', help='Allow this script to run ollama pull when the embedding model is missing')
     parser.add_argument('--json', action='store_true', help='Output JSON for automation-friendly commands')
     
     args = parser.parse_args()
@@ -1727,6 +1734,7 @@ def main():
         'tesseract_lang': args.lang,
         'command_type': command_type,
         'allow_model_mismatch': args.allow_model_mismatch,
+        'allow_model_pull': args.allow_model_pull,
     }
     if args.chunk_size is not None:
         kwargs['chunk_size'] = args.chunk_size
@@ -1767,6 +1775,9 @@ def main():
         return
     
     if args.delete:
+        if not args.yes_delete:
+            log_event('ERROR', 'Deletion requires explicit --yes-delete confirmation')
+            return
         if args.json:
             with contextlib.redirect_stdout(sys.stderr):
                 ok = converter.delete_book(args.delete)
@@ -1797,7 +1808,7 @@ def main():
             print(json.dumps(results, ensure_ascii=False, indent=2))
             return
         
-        log_event('DATA', 'Results found', count=len(results), query=args.search)
+        log_event('DATA', 'Results found', count=len(results), query_length=len(args.search or ''))
         
         print(f"📈 **Result Details:**")
         for i, result in enumerate(results, 1):
@@ -1848,6 +1859,9 @@ def main():
         return
     
     if args.convert_all:
+        if not args.allow_recursive_convert:
+            log_event('ERROR', 'Recursive conversion requires --allow-recursive-convert')
+            return
         directory = Path(args.convert_all)
         if not directory.exists():
             log_event('ERROR', 'Directory not found', dir=str(directory))
@@ -1873,6 +1887,9 @@ def main():
             if args.json:
                 print(json.dumps({"source": str(target), "result": result}, ensure_ascii=False, indent=2))
         elif target.is_dir():
+            if not args.allow_recursive_convert:
+                log_event('ERROR', 'Directory target conversion requires --allow-recursive-convert')
+                return
             log_event('START', 'Converting all documents in folder', dir=str(target))
             converter.convert_all_in_directory(target)
         return

@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Calibre OpenClaw - Dashboard</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         * {
             margin: 0;
@@ -570,77 +569,127 @@
         let ws;
         let embeddingChart;
         let systemChart;
+        let dashboardApiKey = '';
+
+        function createDoughnutChart(canvas, labels, colors) {
+            const ctx = canvas.getContext('2d');
+            const state = { data: [0, 0] };
+
+            function draw() {
+                const width = canvas.clientWidth || 300;
+                const height = canvas.clientHeight || 220;
+                canvas.width = width * window.devicePixelRatio;
+                canvas.height = height * window.devicePixelRatio;
+                ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+                ctx.clearRect(0, 0, width, height);
+
+                const total = state.data.reduce((sum, value) => sum + value, 0);
+                const radius = Math.min(width, height) * 0.28;
+                const centerX = width / 2;
+                const centerY = height * 0.42;
+                let start = -Math.PI / 2;
+
+                if (!total) {
+                    ctx.strokeStyle = '#e0e0e0';
+                    ctx.lineWidth = radius * 0.45;
+                    ctx.beginPath();
+                    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
+                    ctx.stroke();
+                } else {
+                    state.data.forEach((value, index) => {
+                        const angle = (value / total) * Math.PI * 2;
+                        ctx.strokeStyle = colors[index];
+                        ctx.lineWidth = radius * 0.45;
+                        ctx.beginPath();
+                        ctx.arc(centerX, centerY, radius, start, start + angle);
+                        ctx.stroke();
+                        start += angle;
+                    });
+                }
+
+                labels.forEach((label, index) => {
+                    const x = width * 0.25 + index * width * 0.34;
+                    const y = height - 34;
+                    ctx.fillStyle = colors[index];
+                    ctx.fillRect(x, y - 10, 14, 14);
+                    ctx.fillStyle = '#555';
+                    ctx.font = '12px Segoe UI, sans-serif';
+                    ctx.fillText(label, x + 20, y + 1);
+                });
+            }
+
+            return {
+                data: { datasets: [{ data: state.data }] },
+                update() {
+                    state.data = this.data.datasets[0].data.map((value) => Number(value) || 0);
+                    draw();
+                }
+            };
+        }
+
+        function createBarChart(canvas, labels, colors) {
+            const ctx = canvas.getContext('2d');
+            const state = { data: [0, 0, 0, 0] };
+
+            function draw() {
+                const width = canvas.clientWidth || 300;
+                const height = canvas.clientHeight || 220;
+                canvas.width = width * window.devicePixelRatio;
+                canvas.height = height * window.devicePixelRatio;
+                ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+                ctx.clearRect(0, 0, width, height);
+
+                const max = Math.max(1, ...state.data);
+                const chartTop = 20;
+                const chartBottom = height - 48;
+                const chartHeight = chartBottom - chartTop;
+                const slot = width / labels.length;
+
+                ctx.strokeStyle = '#e0e0e0';
+                ctx.beginPath();
+                ctx.moveTo(20, chartBottom);
+                ctx.lineTo(width - 10, chartBottom);
+                ctx.stroke();
+
+                state.data.forEach((value, index) => {
+                    const barHeight = (value / max) * chartHeight;
+                    const barWidth = Math.min(46, slot * 0.5);
+                    const x = slot * index + slot / 2 - barWidth / 2;
+                    const y = chartBottom - barHeight;
+                    ctx.fillStyle = colors[index];
+                    ctx.fillRect(x, y, barWidth, barHeight);
+                    ctx.fillStyle = '#333';
+                    ctx.font = '12px Segoe UI, sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(String(value), x + barWidth / 2, y - 6);
+                    ctx.fillStyle = '#666';
+                    ctx.fillText(labels[index], x + barWidth / 2, height - 20);
+                });
+                ctx.textAlign = 'start';
+            }
+
+            return {
+                data: { datasets: [{ data: state.data }] },
+                update() {
+                    state.data = this.data.datasets[0].data.map((value) => Number(value) || 0);
+                    draw();
+                }
+            };
+        }
 
         function initCharts() {
-            // Embedding Distribution Chart
-            const embeddingCtx = document.getElementById('embeddingChart').getContext('2d');
-            embeddingChart = new Chart(embeddingCtx, {
-                type: 'doughnut',
-                data: {
-                    labels: ['With Embeddings', 'Without Embeddings'],
-                    datasets: [{
-                        data: [0, 0],
-                        backgroundColor: [
-                            'rgba(102, 126, 234, 0.8)',
-                            'rgba(118, 75, 162, 0.8)'
-                        ],
-                        borderColor: [
-                            'rgba(102, 126, 234, 1)',
-                            'rgba(118, 75, 162, 1)'
-                        ],
-                        borderWidth: 2
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            position: 'bottom'
-                        }
-                    }
-                }
-            });
-
-            // System Status Chart
-            const systemCtx = document.getElementById('systemChart').getContext('2d');
-            systemChart = new Chart(systemCtx, {
-                type: 'bar',
-                data: {
-                    labels: ['Pending', 'Processing', 'Completed', 'Failed'],
-                    datasets: [{
-                        label: 'Queue Items',
-                        data: [0, 0, 0, 0],
-                        backgroundColor: [
-                            'rgba(255, 152, 0, 0.8)',
-                            'rgba(33, 150, 243, 0.8)',
-                            'rgba(76, 175, 80, 0.8)',
-                            'rgba(244, 67, 54, 0.8)'
-                        ],
-                        borderColor: [
-                            'rgba(255, 152, 0, 1)',
-                            'rgba(33, 150, 243, 1)',
-                            'rgba(76, 175, 80, 1)',
-                            'rgba(244, 67, 54, 1)'
-                        ],
-                        borderWidth: 2
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            display: false
-                        }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true
-                        }
-                    }
-                }
-            });
+            embeddingChart = createDoughnutChart(
+                document.getElementById('embeddingChart'),
+                ['With Embeddings', 'Without Embeddings'],
+                ['rgba(102, 126, 234, 0.85)', 'rgba(118, 75, 162, 0.85)']
+            );
+            systemChart = createBarChart(
+                document.getElementById('systemChart'),
+                ['Pending', 'Processing', 'Completed', 'Failed'],
+                ['rgba(255, 152, 0, 0.85)', 'rgba(33, 150, 243, 0.85)', 'rgba(76, 175, 80, 0.85)', 'rgba(244, 67, 54, 0.85)']
+            );
+            embeddingChart.update();
+            systemChart.update();
         }
 
         function updateDashboard(data) {
@@ -719,7 +768,7 @@
 
         async function loadRecentBooks() {
             try {
-                const response = await fetch('/api/books?limit=10');
+                const response = await fetch('/api/books?limit=10', authFetchOptions());
                 const data = await response.json();
                 
                 const booksList = document.getElementById('recentBooks');
@@ -755,7 +804,7 @@
 
         async function loadProblemBooks() {
             try {
-                const response = await fetch('/api/books/problems');
+                const response = await fetch('/api/books/problems', authFetchOptions());
                 const data = await response.json();
                 
                 const problemBooksList = document.getElementById('problemBooks');
@@ -795,7 +844,8 @@
 
         function connectWebSocket() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${protocol}//${window.location.host}/ws/stats`;
+            const apiKey = getApiKey();
+            const wsUrl = `${protocol}//${window.location.host}/ws/stats${apiKey ? `?api_key=${encodeURIComponent(apiKey)}` : ''}`;
             
             ws = new WebSocket(wsUrl);
 
@@ -828,6 +878,23 @@
                 document.getElementById('statusDot').className = 'status-dot disconnected';
                 document.getElementById('statusText').textContent = 'Connection error';
             };
+        }
+
+        function getApiKey() {
+            const urlKey = new URLSearchParams(window.location.search).get('api_key') || '';
+            if (urlKey) {
+                dashboardApiKey = urlKey;
+                return dashboardApiKey;
+            }
+            if (!dashboardApiKey) {
+                dashboardApiKey = window.prompt('API key') || '';
+            }
+            return dashboardApiKey;
+        }
+
+        function authFetchOptions() {
+            const apiKey = getApiKey();
+            return apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : {};
         }
 
         // Initialize

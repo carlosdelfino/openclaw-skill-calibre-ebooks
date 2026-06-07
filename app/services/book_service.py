@@ -134,8 +134,12 @@ class BookService:
     def get_book_pdf_path(self, book_id: int) -> Optional[Path]:
         """Get the PDF file path for a book."""
         book = postgres_db.get_book_by_id(book_id)
-        if book:
-            return Path(book['file_path'])
+        if book and book.get('file_path'):
+            file_path = Path(book['file_path']).resolve()
+            library_path = self.library_path.resolve()
+            if file_path.is_relative_to(library_path):
+                return file_path
+            logger.warning("Rejected book file outside configured Calibre library")
         return None
     
     def get_book_cover(self, book_id: int) -> Optional[bytes]:
@@ -156,9 +160,7 @@ class BookService:
         """Get a specific page as PDF."""
         pdf_path = self.get_book_pdf_path(book_id)
         if pdf_path and pdf_path.exists():
-            # For now, return the full PDF
-            # TODO: Implement single page extraction
-            return conversion_service.get_pdf_bytes(pdf_path)
+            return conversion_service.pdf_page_to_pdf_bytes(pdf_path, page_num)
         return None
     
     def get_book_markdown(self, book_id: int) -> Optional[str]:

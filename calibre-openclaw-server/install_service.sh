@@ -11,6 +11,7 @@ SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 NIGHTLY_SERVICE_NAME="${SERVICE_NAME}-nightly-embeddings"
 NIGHTLY_SERVICE_FILE="/etc/systemd/system/${NIGHTLY_SERVICE_NAME}.service"
 NIGHTLY_TIMER_FILE="/etc/systemd/system/${NIGHTLY_SERVICE_NAME}.timer"
+NIGHTLY_SERVICE_CREATED=false
 
 # Colors for output
 RED='\033[0;31m'
@@ -35,6 +36,36 @@ print_info() {
     echo -e "ℹ $1"
 }
 
+confirm_systemd_change() {
+    local action="$1"
+    if [[ "${ASSUME_YES:-}" =~ ^(1|true|TRUE|yes|YES|s|sim)$ ]]; then
+        return 0
+    fi
+    print_warning "$action will modify systemd units under /etc/systemd/system using sudo."
+    read -r -p "Continue? Type 'yes' to proceed: " answer
+    if [[ "$answer" != "yes" ]]; then
+        print_error "Aborted"
+        exit 1
+    fi
+}
+
+env_value() {
+    local key="$1"
+    local file="${2:-$ENV_FILE}"
+    local line value
+    if [[ -z "$file" || ! -f "$file" ]]; then
+        printf ''
+        return
+    fi
+    line="$(grep -E "^${key}=" "$file" | tail -n 1 || true)"
+    value="${line#*=}"
+    value="${value%\"}"
+    value="${value#\"}"
+    value="${value%\'}"
+    value="${value#\'}"
+    printf '%s' "$value"
+}
+
 # Check if running as root
 check_root() {
     if [[ $EUID -eq 0 ]]; then
@@ -54,6 +85,7 @@ check_env() {
         if [[ -f "$dir/.env" ]]; then
             ENV_FILE="$dir/.env"
             print_success ".env file found at $ENV_FILE"
+            chmod 600 "$ENV_FILE" 2>/dev/null || print_warning "Could not set $ENV_FILE permissions to 600"
             break
         fi
     done
@@ -83,32 +115,14 @@ check_venv() {
         python3 -m venv "$VENV_DIR"
         if [[ $? -eq 0 ]]; then
             print_success "Virtual environment created at $VENV_DIR"
-            # Upgrade pip
-            print_info "Upgrading pip in new virtual environment..."
-            "$VENV_DIR/bin/python" -m pip install --upgrade pip --no-cache-dir 2>/dev/null
-            if [[ $? -ne 0 ]]; then
-                print_warning "pip upgrade via index failed, trying get-pip.py..."
-                curl -s https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
-                "$VENV_DIR/bin/python" /tmp/get-pip.py --no-cache-dir
-            fi
-            print_success "pip upgraded: $($VENV_DIR/bin/pip --version)"
         else
             print_error "Failed to create virtual environment"
             exit 1
         fi
     else
         print_success "Virtual environment found at $VENV_DIR"
-        # Check and upgrade pip if needed
         pip_version=$($VENV_PIP --version | awk '{print $2}')
-        pip_major=$(echo $pip_version | cut -d. -f1)
-        if [[ "$pip_major" -lt 25 ]]; then
-            print_warning "pip version $pip_version is old, upgrading..."
-            curl -s https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
-            $VENV_PYTHON /tmp/get-pip.py --no-cache-dir
-            print_success "pip upgraded: $($VENV_PIP --version)"
-        else
-            print_success "pip version $pip_version is up to date"
-        fi
+        print_success "pip version $pip_version"
     fi
 }
 
@@ -183,13 +197,21 @@ check_packages() {
     # If packages are missing, install them
     if [[ $missing_packages -gt 0 ]]; then
         print_warning "$missing_packages required package(s) are missing"
-        print_info "Installing packages from requirements.txt..."
-        VENV_PIP="$SCRIPT_DIR/.venv/bin/pip"
-        $VENV_PIP install -r "${SCRIPT_DIR}/requirements.txt"
-        if [[ $? -eq 0 ]]; then
-            print_success "Packages installed successfully"
+        ALLOW_RUNTIME_PIP_INSTALL="$(env_value ALLOW_RUNTIME_PIP_INSTALL)"
+        if [[ "$ALLOW_RUNTIME_PIP_INSTALL" =~ ^(1|true|TRUE|yes|YES|s|sim)$ ]]; then
+            print_info "Installing packages from requirements.txt..."
+            VENV_PIP="$SCRIPT_DIR/.venv/bin/pip"
+            $VENV_PIP install -r "${SCRIPT_DIR}/requirements.txt"
+            if [[ $? -eq 0 ]]; then
+                print_success "Packages installed successfully"
+            else
+                print_error "Failed to install packages"
+                exit 1
+            fi
         else
-            print_error "Failed to install packages"
+            print_error "Missing dependencies and runtime pip install is disabled."
+            print_info "Set ALLOW_RUNTIME_PIP_INSTALL=true explicitly or run:"
+            print_info "  ${SCRIPT_DIR}/.venv/bin/pip install -r ${SCRIPT_DIR}/requirements.txt"
             exit 1
         fi
     else
@@ -229,16 +251,18 @@ check_ollama() {
 check_postgresql() {
     print_info "Checking PostgreSQL..."
 
-    # Read PostgreSQL credentials from .env
-    if [[ -f "${SCRIPT_DIR}/.env" ]]; then
-        source "${SCRIPT_DIR}/.env"
-    fi
+    PGUSER="$(env_value POSTGRESQL_DB_USER)"
+    PGPASSWORD="$(env_value POSTGRESQL_DB_PASSWD)"
+    PGDATABASE="$(env_value POSTGRESQL_DB_DATABASE)"
+    PGHOST="$(env_value POSTGRESQL_DB_HOST)"
+    PGHOST="${PGHOST:-localhost}"
+    PGPORT="$(env_value POSTGRESQL_DB_PORT)"
+    PGPORT="${PGPORT:-5432}"
 
-    PGUSER="${POSTGRESQL_DB_USER:-generativa}"
-    PGPASSWORD="${POSTGRESQL_DB_PASSWD:-}"
-    PGDATABASE="${POSTGRESQL_DB_DATABASE:-rapport_biblioteca}"
-    PGHOST="${POSTGRESQL_DB_HOST:-localhost}"
-    PGPORT="${POSTGRESQL_DB_PORT:-5432}"
+    if [[ -z "$PGUSER" || -z "$PGDATABASE" ]]; then
+        print_error "POSTGRESQL_DB_USER and POSTGRESQL_DB_DATABASE must be configured in $ENV_FILE"
+        exit 1
+    fi
 
     if PGPASSWORD="$PGPASSWORD" psql -h "$PGHOST" -p "$PGPORT" -U "$PGUSER" -d "$PGDATABASE" -c "SELECT 1" > /dev/null 2>&1; then
         print_success "PostgreSQL is accessible"
@@ -252,11 +276,7 @@ check_postgresql() {
 check_calibre_db() {
     print_info "Checking Calibre database..."
 
-    # Read Calibre DB path from .env
-    if [[ -f "${SCRIPT_DIR}/.env" ]]; then
-        source "${SCRIPT_DIR}/.env"
-    fi
-
+    CALIBRE_DB_PATH="$(env_value CALIBRE_DB_PATH)"
     CALIBRE_DB_PATH="${CALIBRE_DB_PATH:-/mnt/Backup_2/Biblioteca/metadata.db}"
 
     if [[ -f "$CALIBRE_DB_PATH" ]]; then
@@ -294,6 +314,10 @@ create_service_file() {
     CURRENT_USER=$(whoami)
     CURRENT_HOME=$(getent passwd "$CURRENT_USER" | cut -d: -f6)
     SERVICE_ENV_DIR="$(dirname "$ENV_FILE")"
+    SERVICE_HOST="$(env_value SERVER_HOST)"
+    SERVICE_HOST="${SERVICE_HOST:-127.0.0.1}"
+    SERVICE_PORT="$(env_value SERVER_PORT)"
+    SERVICE_PORT="${SERVICE_PORT:-6180}"
     
     sudo tee "$SERVICE_FILE" > /dev/null <<EOF
 [Unit]
@@ -307,10 +331,15 @@ Group=${CURRENT_USER}
 WorkingDirectory=${SCRIPT_DIR}
 Environment="PATH=${SCRIPT_DIR}/.venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="ENV_DIR=${SERVICE_ENV_DIR}"
-ExecStart=${SCRIPT_DIR}/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 6180
+EnvironmentFile=${ENV_FILE}
+ExecStart=${SCRIPT_DIR}/.venv/bin/python -m uvicorn app.main:app --host ${SERVICE_HOST} --port ${SERVICE_PORT}
 ExecStop=/bin/kill -SIGTERM \$MAINPID
 Restart=always
 RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
 StandardOutput=append:${SCRIPT_DIR}/logs/service.log
 StandardError=append:${SCRIPT_DIR}/logs/service_error.log
 
@@ -328,6 +357,45 @@ create_nightly_service_files() {
     CURRENT_USER=$(whoami)
     CURRENT_HOME=$(getent passwd "$CURRENT_USER" | cut -d: -f6)
     SERVICE_ENV_DIR="$(dirname "$ENV_FILE")"
+    RAG_STOP_AT_LOCAL="$(env_value RAG_STOP_AT_LOCAL)"
+    RAG_IDLE_SLEEP_SECONDS="$(env_value RAG_IDLE_SLEEP_SECONDS)"
+    RAG_IDLE_SLEEP_SECONDS="${RAG_IDLE_SLEEP_SECONDS:-60}"
+    RAG_RUNTIME_MAX_SEC="$(env_value RAG_RUNTIME_MAX_SEC)"
+    RAG_TIMER_ON_CALENDAR="$(env_value RAG_TIMER_ON_CALENDAR)"
+    RAG_SERVICE_CONTINUOUS="$(env_value RAG_SERVICE_CONTINUOUS)"
+    RAG_SERVICE_CONTINUOUS="${RAG_SERVICE_CONTINUOUS:-false}"
+    RAG_PREFETCH_RANDOM_BOOKS="$(env_value RAG_PREFETCH_RANDOM_BOOKS)"
+    RAG_RECONCILE_ON_START="$(env_value RAG_RECONCILE_ON_START)"
+    INSTALL_NIGHTLY_EMBEDDINGS="$(env_value INSTALL_NIGHTLY_EMBEDDINGS)"
+
+    if [[ ! "$INSTALL_NIGHTLY_EMBEDDINGS" =~ ^(1|true|yes|s|sim)$ ]]; then
+        print_info "Nightly embeddings service disabled. Set INSTALL_NIGHTLY_EMBEDDINGS=true to install it."
+        return
+    fi
+
+    if [[ -z "$RAG_TIMER_ON_CALENDAR" ]]; then
+        print_error "RAG_TIMER_ON_CALENDAR must be configured in $ENV_FILE"
+        exit 1
+    fi
+
+    NIGHTLY_ARGS=""
+    RUNTIME_MAX_LINE=""
+    if [[ "$RAG_SERVICE_CONTINUOUS" =~ ^(1|true|yes|s|sim)$ ]]; then
+        NIGHTLY_ARGS="${NIGHTLY_ARGS} --continuous"
+    fi
+    NIGHTLY_ARGS="${NIGHTLY_ARGS} --idle-sleep ${RAG_IDLE_SLEEP_SECONDS}"
+    if [[ -n "$RAG_STOP_AT_LOCAL" ]]; then
+        NIGHTLY_ARGS="${NIGHTLY_ARGS} --stop-at-local ${RAG_STOP_AT_LOCAL}"
+    fi
+    if [[ "$RAG_PREFETCH_RANDOM_BOOKS" =~ ^(1|true|yes|s|sim)$ ]]; then
+        NIGHTLY_ARGS="${NIGHTLY_ARGS} --prefetch-random"
+    fi
+    if [[ "$RAG_RECONCILE_ON_START" =~ ^(1|true|yes|s|sim)$ ]]; then
+        NIGHTLY_ARGS="${NIGHTLY_ARGS} --reconcile-embedding-version"
+    fi
+    if [[ -n "$RAG_RUNTIME_MAX_SEC" ]]; then
+        RUNTIME_MAX_LINE="RuntimeMaxSec=${RAG_RUNTIME_MAX_SEC}"
+    fi
 
     sudo tee "$NIGHTLY_SERVICE_FILE" > /dev/null <<EOF
 [Unit]
@@ -343,7 +411,16 @@ WorkingDirectory=${SCRIPT_DIR}
 Environment="PATH=${SCRIPT_DIR}/.venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="HOME=${CURRENT_HOME}"
 Environment="ENV_DIR=${SERVICE_ENV_DIR}"
-ExecStart=${SCRIPT_DIR}/.venv/bin/python -m app.nightly_embeddings
+EnvironmentFile=${ENV_FILE}
+ExecStart=${SCRIPT_DIR}/.venv/bin/python -m app.nightly_embeddings${NIGHTLY_ARGS}
+${RUNTIME_MAX_LINE}
+TimeoutStopSec=2min
+KillSignal=SIGTERM
+FinalKillSignal=SIGKILL
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
 StandardOutput=append:${SCRIPT_DIR}/logs/nightly_embeddings.log
 StandardError=append:${SCRIPT_DIR}/logs/nightly_embeddings_error.log
 
@@ -353,12 +430,12 @@ EOF
 
     sudo tee "$NIGHTLY_TIMER_FILE" > /dev/null <<EOF
 [Unit]
-Description=Run Calibre OpenClaw embedding prefetch between 01:00 and 05:00
+Description=Run Calibre OpenClaw embedding prefetch
 
 [Timer]
-OnCalendar=*-*-* 01:00:00
-RandomizedDelaySec=4h
-Persistent=true
+OnCalendar=${RAG_TIMER_ON_CALENDAR}
+RandomizedDelaySec=0
+Persistent=false
 Unit=${NIGHTLY_SERVICE_NAME}.service
 
 [Install]
@@ -367,6 +444,7 @@ EOF
 
     print_success "Nightly service file created at $NIGHTLY_SERVICE_FILE"
     print_success "Nightly timer file created at $NIGHTLY_TIMER_FILE"
+    NIGHTLY_SERVICE_CREATED=true
 }
 
 # Install the service
@@ -374,6 +452,7 @@ install_service() {
     print_info "Installing ${SERVICE_NAME} service..."
     
     check_root
+    confirm_systemd_change "Installing ${SERVICE_NAME}"
     
     # Run all pre-installation checks
     run_all_checks
@@ -397,9 +476,11 @@ install_service() {
     sudo systemctl enable "$SERVICE_NAME"
     print_success "Service enabled"
 
-    print_info "Enabling nightly embeddings timer..."
-    sudo systemctl enable --now "$NIGHTLY_SERVICE_NAME.timer"
-    print_success "Nightly embeddings timer enabled"
+    if [[ "$NIGHTLY_SERVICE_CREATED" == "true" ]]; then
+        print_info "Enabling nightly embeddings timer..."
+        sudo systemctl enable --now "$NIGHTLY_SERVICE_NAME.timer"
+        print_success "Nightly embeddings timer enabled"
+    fi
     
     print_success "Service installed successfully!"
     print_info "You can now manage the service using:"
@@ -419,6 +500,7 @@ install_service() {
 # Uninstall the service
 uninstall_service() {
     print_info "Uninstalling ${SERVICE_NAME} service and ${NIGHTLY_SERVICE_NAME} timer..."
+    confirm_systemd_change "Uninstalling ${SERVICE_NAME}"
     
     # Stop service if running
     if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null || systemctl --user is-active --quiet "$SERVICE_NAME" 2>/dev/null; then

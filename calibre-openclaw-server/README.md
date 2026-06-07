@@ -1,102 +1,183 @@
-![visitors](https://visitor-badge.laobi.icu/badge?page_id=carlosdelfino.openclaw-skill-calibre-ebooks)
-[![License: CC BY-SA 4.0](https://img.shields.io/badge/License-CC_BY--SA_4.0-blue.svg)](https://creativecommons.org/licenses/by-sa/4.0/)
-![Language: English](https://img.shields.io/badge/Language-English-brightgreen.svg)
-![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
-![Node.js](https://img.shields.io/badge/Node.js-20%2B-green)
-![Status](https://img.shields.io/badge/Status-Development-brightgreen)
-![Repository Size](https://img.shields.io/github/repo-size/carlosdelfino/openclaw-skill-calibre-ebooks)
-![Last Commit](https://img.shields.io/github/last-commit/carlosdelfino/openclaw-skill-calibre-ebooks)
+# calibre-openclaw-server
 
-<!-- Animated Header -->
-<p align="center">
-  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:0f172a,50:1a56db,100:10b981&height=220&section=header&text=Calibre%20Ebooks&fontSize=42&fontColor=ffffff&animation=fadeIn&fontAlignY=35&desc=OpenClaw%20Skill%20for%20Calibre%20Books%20API&descSize=18&descAlignY=55&descColor=94a3b8" width="100%" alt="Calibre Ebooks Header"/>
-</p>
+Servidor FastAPI para consultar uma biblioteca Calibre local e oferecer busca
+semântica RAG com citações por página.
 
-# calibre-ebooks
+O servidor usa:
 
-OpenClaw skill for managing and querying the local Calibre-backed Books API.
-This server works with books already present in the configured Calibre library;
-it does not provide unauthorized book sources. For titles that are not in the
-local library, consult public catalog/store pages such as Google Books or Amazon
-Books for metadata, editions, publisher information, and lawful availability.
+- Calibre `metadata.db` como catálogo de livros.
+- PostgreSQL com `pgvector` para embeddings.
+- Ollama para gerar embeddings.
+- Systemd para manter a API ativa e rodar o RAG em janela agendada.
 
-Semantic RAG search returns citeable results. Indexed PDF chunks preserve the
-page number and, when detectable, the chapter or section heading. The content
-search response includes `page_start`, `page_end`, `section_title`, `citation`,
-`similarity`, and the matched excerpt so agents can enrich answers with precise
-book locations instead of uncited summaries.
+## Requisitos
 
-Primary API documentation:
+- Python 3.10+
+- PostgreSQL com extensão `vector`
+- Ollama em execução
+- Modelo de embedding configurado em `OLLAMA_MODEL`
+- Biblioteca Calibre local com `metadata.db`
 
-- Swagger UI: `http://0.0.0.0:6180/docs`
-- ReDoc: `http://0.0.0.0:6180/redoc`
-- OpenAPI JSON: `http://0.0.0.0:6180/openapi.json`
+## Configuração
 
-Use the bundled Node.js client:
+Crie um `.env` neste diretório ou no diretório pai `skills/calibre-ebooks/`.
+Use `.env.example` como base.
 
-```bash
-node skills/calibre-ebooks/calibre-openclaw-server/scripts/books-api-client.mjs docs
-node skills/calibre-ebooks/calibre-openclaw-server/scripts/books-api-client.mjs paths
-node skills/calibre-ebooks/calibre-openclaw-server/scripts/books-api-client.mjs search "term" --limit 10
-node skills/calibre-ebooks/calibre-openclaw-server/scripts/books-api-client.mjs book 123
-node skills/calibre-ebooks/calibre-openclaw-server/scripts/books-api-client.mjs request GET /books --query q=python
+Variáveis essenciais:
+
+```env
+CALIBRE_DB_PATH=/caminho/para/Biblioteca/metadata.db
+CALIBRE_LIBRARY_PATH=/caminho/para/Biblioteca
+
+API_KEY=token-seguro
+ALLOW_UNAUTHENTICATED=false
+
+POSTGRESQL_DB_USER=calibre_openclaw
+POSTGRESQL_DB_PASSWD=senha-segura
+POSTGRESQL_DB_DATABASE=calibre_openclaw
+POSTGRESQL_DB_HOST=localhost
+POSTGRESQL_DB_PORT=5432
+
+OLLAMA_HOST=http://localhost:11434
+OLLAMA_MODEL=nomic-embed-text-v2-moe:latest
+ALLOW_REMOTE_OLLAMA=false
 ```
 
-See `SKILL.md` for the full workflow. Local Python scripts are fallback helpers
-for direct Calibre metadata queries and RAG indexing when the API is unavailable
-or does not cover the requested local-library operation.
+Opções sensíveis, desabilitadas por padrão no código:
 
-## Cloning the Project
-
-To clone this repository, run:
-
-```bash
-git clone git@github.com:carlosdelfino/openclaw-skill-calibre-ebooks.git
-cd openclaw-skill-calibre-ebooks
+```env
+ALLOW_BOOK_CONTENT_DOWNLOADS=false
+ENABLE_NETWORK_BINDINGS_ENDPOINT=false
+ENABLE_NETWORK_BINDINGS_MONITOR=false
+ALLOW_GET_AUTO_SYNC=false
 ```
 
-## How to Contribute
+## Executar a API
 
-Contributions are welcome! To help improve this project:
+```bash
+cd skills/calibre-ebooks/calibre-openclaw-server
+./run.sh
+```
 
-1. **Fork** the repository on GitHub
+URLs principais:
 
-2. **Create a branch** for your feature or fix:
+- API: `http://127.0.0.1:6180`
+- Swagger: `http://127.0.0.1:6180/docs`
+- ReDoc: `http://127.0.0.1:6180/redoc`
+- Health: `http://127.0.0.1:6180/health`
 
-   ```bash
-   git checkout -b feature/new-feature
-   ```
+## Cliente Local
 
-3. **Make your changes** and commit with clear messages
+```bash
+node scripts/books-api-client.mjs docs
+node scripts/books-api-client.mjs paths
+node scripts/books-api-client.mjs search "termo" --limit 10
+node scripts/books-api-client.mjs book 123
+node scripts/books-api-client.mjs request GET /books --query q=python
+```
 
-4. **Push to your branch**:
+## RAG Manual
 
-   ```bash
-   git push origin feature/new-feature
-   ```
+Para processar embeddings continuamente fora da janela noturna:
 
-5. **Open a Pull Request** on GitHub describing your changes
+```bash
+cd skills/calibre-ebooks
+./calibre-openclaw-server/run-rag.sh
+```
 
-### Contribution Guidelines
+Por padrão o `run-rag.sh` roda até `Ctrl+C`. Para impor horário de parada em
+execução manual:
 
-- Keep the code clean and well documented
-- Follow the existing code standards
-- Test your changes before submitting
-- Add documentation for new features
-- Respect the project formatting style
+```env
+RAG_RUN_STOP_AT_LOCAL=18:00
+```
 
-<p align="center">
-  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:10b981,50:1a56db,100:0f172a&height=120&section=footer" width="100%" alt="Footer"/>
-</p>
+Também é possível passar o limite diretamente:
 
----
-**Summary:** OpenClaw skill for managing a local Calibre library, including a Node.js client and auxiliary Python scripts.
-**Creation Date:** 2025-05-30
-**Author:** Rapport GenerAtiva
-**Version:** 0.0.10
-**Last Update:** 2025-05-31
-**Updated by:** Carlos Delfino
-**Changelog:**
-- 2025-05-31 - Created by Rapport GenerAtiva - Version 0.0.10
-- 2025-05-30 - Updated by Carlos Delfino - Applied documentation rules - Version 0.0.6
-- 2025-05-30 - Created by Rapport GenerAtiva - Version 0.0.6
+```bash
+./calibre-openclaw-server/run-rag.sh --stop-at-local 18:00
+```
+
+## RAG Agendado
+
+O serviço noturno é gerado por `install_service.sh` e lê o agendamento do
+`.env`. Não há horário fixo no código.
+
+```env
+RAG_STOP_AT_LOCAL=06:00
+RAG_TIMER_ON_CALENDAR=*-*-* 01:00:00
+RAG_RUNTIME_MAX_SEC=5h
+RAG_SERVICE_CONTINUOUS=false
+RAG_IDLE_SLEEP_SECONDS=60
+RAG_PREFETCH_RANDOM_BOOKS=false
+RAG_RECONCILE_ON_START=false
+RAG_ALLOW_MODEL_PULL=false
+INSTALL_NIGHTLY_EMBEDDINGS=false
+```
+
+Significado:
+
+- `RAG_TIMER_ON_CALENDAR`: quando o timer systemd inicia o worker.
+- `RAG_STOP_AT_LOCAL`: horário local em que o worker para de iniciar novos livros.
+- `RAG_RUNTIME_MAX_SEC`: limite máximo imposto pelo systemd.
+- `RAG_SERVICE_CONTINUOUS`: mantém o worker buscando novos livros enquanto houver janela. Deixe `false` salvo quando não precisar desse comportamento persistente.
+- `RAG_IDLE_SLEEP_SECONDS`: pausa entre verificações quando não há fila.
+- `RAG_PREFETCH_RANDOM_BOOKS`: permite enfileirar livros automaticamente quando a fila está vazia.
+- `RAG_RECONCILE_ON_START`: permite invalidar embeddings antigos quando a assinatura muda.
+- `RAG_ALLOW_MODEL_PULL`: permite que o script auxiliar rode `ollama pull` se o modelo faltar.
+- `INSTALL_NIGHTLY_EMBEDDINGS`: permite instalar e habilitar o timer noturno.
+
+Para desativar o limite interno de horário do worker, deixe
+`RAG_STOP_AT_LOCAL` vazio. Nesse caso, use `RAG_RUNTIME_MAX_SEC` ou controle o
+tempo pelo próprio systemd.
+
+## Instalar Serviços
+
+```bash
+cd skills/calibre-ebooks/calibre-openclaw-server
+./install_service.sh install
+```
+
+Serviços criados:
+
+- `calibre-openclaw-server.service`
+- `calibre-openclaw-server-nightly-embeddings.service`
+- `calibre-openclaw-server-nightly-embeddings.timer`
+
+Comandos úteis:
+
+```bash
+sudo systemctl status calibre-openclaw-server.service
+sudo systemctl restart calibre-openclaw-server.service
+sudo systemctl status calibre-openclaw-server-nightly-embeddings.timer
+sudo systemctl start calibre-openclaw-server-nightly-embeddings.service
+```
+
+## Banco de Dados
+
+O servidor usa sempre o banco definido em `POSTGRESQL_DB_DATABASE`.
+Na inicialização, ele cria as tabelas necessárias se não existirem.
+
+Tabelas principais:
+
+- `books`
+- `book_chunks`
+- `processing_queue`
+- `settings`
+
+## Sincronização
+
+Quando esta pasta for usada em mais de um local, mantenha sincronizadas as
+cópias de código e preserve arquivos locais como `.env`, `.venv` e `logs/`.
+
+Exemplo:
+
+```bash
+rsync -avc \
+  --exclude '.env' \
+  --exclude '.venv/' \
+  --exclude 'logs/' \
+  --exclude '__pycache__/' \
+  skills/calibre-ebooks/calibre-openclaw-server/ \
+  /mnt/Backup_2/Biblioteca/calibre-openclaw-server/
+```

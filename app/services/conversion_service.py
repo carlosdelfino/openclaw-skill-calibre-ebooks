@@ -11,11 +11,22 @@ logger = get_logger(__name__)
 
 class ConversionService:
     """Service for converting PDF files to Markdown and extracting content."""
+
+    @staticmethod
+    def _require_library_file(file_path: Path) -> Path:
+        library_path = Path(settings.CALIBRE_LIBRARY_PATH).resolve()
+        resolved_path = file_path.resolve()
+        if not resolved_path.is_file():
+            raise FileNotFoundError("Book file not found")
+        if not resolved_path.is_relative_to(library_path):
+            raise PermissionError("Book file is outside the configured Calibre library")
+        return resolved_path
     
     @staticmethod
     def pdf_to_text(pdf_path: Path) -> str:
         """Convert entire PDF to text."""
         try:
+            pdf_path = ConversionService._require_library_file(pdf_path)
             doc = fitz.open(pdf_path)
             text = ""
             for page in doc:
@@ -31,6 +42,7 @@ class ConversionService:
     def pdf_to_markdown(pdf_path: Path) -> str:
         """Convert PDF to Markdown format."""
         try:
+            pdf_path = ConversionService._require_library_file(pdf_path)
             doc = fitz.open(pdf_path)
             markdown = ""
             
@@ -50,6 +62,7 @@ class ConversionService:
     def pdf_page_to_text(pdf_path: Path, page_num: int) -> str:
         """Extract text from a specific page (1-indexed)."""
         try:
+            pdf_path = ConversionService._require_library_file(pdf_path)
             doc = fitz.open(pdf_path)
             if page_num < 1 or page_num > len(doc):
                 doc.close()
@@ -68,6 +81,7 @@ class ConversionService:
     def pdf_page_to_markdown(pdf_path: Path, page_num: int) -> str:
         """Convert a specific page to Markdown (1-indexed)."""
         try:
+            pdf_path = ConversionService._require_library_file(pdf_path)
             doc = fitz.open(pdf_path)
             if page_num < 1 or page_num > len(doc):
                 doc.close()
@@ -86,6 +100,7 @@ class ConversionService:
     def extract_cover_image(pdf_path: Path) -> Optional[bytes]:
         """Extract the first page as a cover image (JPG)."""
         try:
+            pdf_path = ConversionService._require_library_file(pdf_path)
             doc = fitz.open(pdf_path)
             if len(doc) == 0:
                 doc.close()
@@ -110,6 +125,7 @@ class ConversionService:
     def get_pdf_page_count(pdf_path: Path) -> int:
         """Get the number of pages in a PDF."""
         try:
+            pdf_path = ConversionService._require_library_file(pdf_path)
             doc = fitz.open(pdf_path)
             page_count = len(doc)
             doc.close()
@@ -171,10 +187,31 @@ class ConversionService:
     def get_pdf_bytes(pdf_path: Path) -> bytes:
         """Get PDF file as bytes."""
         try:
+            pdf_path = ConversionService._require_library_file(pdf_path)
             with open(pdf_path, 'rb') as f:
                 return f.read()
         except Exception as e:
             logger.error(f"Error reading PDF file {pdf_path}: {e}")
+            raise
+
+    @staticmethod
+    def pdf_page_to_pdf_bytes(pdf_path: Path, page_num: int) -> bytes:
+        """Return only one PDF page as a standalone PDF."""
+        try:
+            pdf_path = ConversionService._require_library_file(pdf_path)
+            source = fitz.open(pdf_path)
+            if page_num < 1 or page_num > len(source):
+                source.close()
+                raise ValueError(f"Page {page_num} out of range")
+
+            output = fitz.open()
+            output.insert_pdf(source, from_page=page_num - 1, to_page=page_num - 1)
+            data = output.tobytes()
+            output.close()
+            source.close()
+            return data
+        except Exception as e:
+            logger.error(f"Error extracting PDF page {page_num} from {pdf_path}: {e}")
             raise
 
 

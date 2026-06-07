@@ -217,7 +217,11 @@ class CalibreDB:
                 cursor = conn.cursor()
                 cursor.execute(search_query, (search_pattern, search_pattern))
                 books = [dict(row) for row in cursor.fetchall()]
-                logger.info(f"Search for '{query}' returned {len(books)} results")
+                logger.info(
+                    "Calibre metadata search returned %s results",
+                    len(books),
+                    extra={"operation": "calibre_search", "query_length": len(query or "")},
+                )
                 return books
         except Exception as e:
             logger.error(f"Error searching books in Calibre DB: {e}")
