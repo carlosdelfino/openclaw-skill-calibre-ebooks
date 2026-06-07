@@ -47,6 +47,12 @@ DEFAULT_DATA_DIR = Path("/tmp/openclaw-calibre-rag/data")
 DEFAULT_CONVERTED_DIR = Path("/tmp/openclaw-calibre-rag/converteds")
 DEFAULT_CALIBRE_METADATA_DB = None
 RAG_REQUIREMENTS = SKILL_DIR / "scripts" / "requirements-rag.txt"
+FORMAT_PRIORITY = ["PDF", "EPUB", "DJVU", "AZW3", "MOBI", "FB2", "TXT", "RTF", "DOCX", "HTMLZ"]
+SECTION_PREFIX_RE = re.compile(
+    r"^\s*(cap[ií]tulo|chapter|parte|part|se[cç][aã]o|section|livro|book|"
+    r"pref[aá]cio|introdu[cç][aã]o|conclus[aã]o|ap[eê]ndice|appendix)\b",
+    re.IGNORECASE,
+)
 
 
 def log_event(level: str, message: str, **params):
@@ -87,7 +93,7 @@ def log_event(level: str, message: str, **params):
     print(f"[{timestamp}] [{file}:{func}:{line}] {emoji} {message}{param_str}", file=sys.stderr)
 
 
-def resolve_calibre_document(book_id: int, fmt: str = "PDF", metadata_db: str | None = DEFAULT_CALIBRE_METADATA_DB) -> Path:
+def resolve_calibre_document(book_id: int, fmt: str | None = None, metadata_db: str | None = DEFAULT_CALIBRE_METADATA_DB) -> Path:
     """Resolve the actual path of a book format in Calibre's metadata.db."""
     if not metadata_db:
         raise FileNotFoundError("metadata.db path is not configured. Use the calibre-ebooks Books API first, or pass --calibre-metadata-db / set CALIBRE_METADATA_DB for local fallback.")
@@ -98,23 +104,35 @@ def resolve_calibre_document(book_id: int, fmt: str = "PDF", metadata_db: str | 
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     try:
-        row = conn.execute(
+        rows = conn.execute(
             """
             SELECT b.path, d.name, d.format
             FROM books b
             JOIN data d ON d.book = b.id
-            WHERE b.id = ? AND upper(d.format) = upper(?)
-            LIMIT 1
+            WHERE b.id = ?
+            ORDER BY d.format
             """,
-            (book_id, fmt),
-        ).fetchone()
-        if row is None:
-            available = conn.execute(
-                "SELECT format FROM data WHERE book = ? ORDER BY format",
-                (book_id,),
-            ).fetchall()
-            formats = ", ".join(r["format"] for r in available) or "none"
-            raise FileNotFoundError(f"Book {book_id} has no format {fmt}. Available formats: {formats}")
+            (book_id,),
+        ).fetchall()
+        if not rows:
+            raise FileNotFoundError(f"Book {book_id} has no available formats")
+
+        row = None
+        if fmt:
+            row = next((r for r in rows if r["format"].upper() == fmt.upper()), None)
+            if row is None:
+                formats = ", ".join(r["format"] for r in rows) or "none"
+                raise FileNotFoundError(f"Book {book_id} has no format {fmt}. Available formats: {formats}")
+        else:
+            row = min(
+                rows,
+                key=lambda r: (
+                    FORMAT_PRIORITY.index(r["format"].upper())
+                    if r["format"].upper() in FORMAT_PRIORITY
+                    else len(FORMAT_PRIORITY),
+                    r["format"].upper(),
+                ),
+            )
 
         file_path = db_path.parent / row["path"] / f"{row['name']}.{row['format'].lower()}"
         if not file_path.exists():
@@ -426,12 +444,20 @@ class DocumentConverter:
                 
                 # Extrair texto
                 text = page.get_text()
+                section_title = self._detect_section_title(text)
                 
                 # Limpar o texto
                 text = self._clean_text(text)
                 
                 if text.strip():
-                    markdown_content.append(f"## Página {page_num + 1}\n\n{text}\n")
+                    section_marker = (
+                        f"\n\n### Seção: {section_title}"
+                        if section_title
+                        else ""
+                    )
+                    markdown_content.append(
+                        f"## Página {page_num + 1}{section_marker}\n\n{text}\n"
+                    )
                 
                 self._show_progress(page_num + 1, total_pages, "Converting PDF", f"pages")
             
@@ -535,6 +561,35 @@ class DocumentConverter:
         md_content = re.sub(r'\n\s*\n', '\n\n', md_content)
         
         return md_content.strip()
+
+    def _detect_section_title(self, text: str) -> Optional[str]:
+        """Detect a likely chapter/section title in raw document text."""
+        for raw_line in (text or "").splitlines():
+            line = " ".join(raw_line.strip().split())
+            if self._looks_like_section_title(line):
+                return line[:160]
+        return None
+
+    @staticmethod
+    def _looks_like_section_title(line: str) -> bool:
+        if not line or len(line) < 4 or len(line) > 140:
+            return False
+        if not re.search(r"[A-Za-zÀ-ÖØ-öø-ÿ]", line):
+            return False
+        if line.endswith((".", ",", ";", ":")) and not SECTION_PREFIX_RE.search(line):
+            return False
+        words = line.split()
+        if len(words) > 14:
+            return False
+        if SECTION_PREFIX_RE.search(line):
+            return True
+        letters = [char for char in line if char.isalpha()]
+        if letters:
+            uppercase_ratio = sum(1 for char in letters if char.isupper()) / len(letters)
+            if uppercase_ratio >= 0.65:
+                return True
+        title_like_words = sum(1 for word in words if word[:1].isupper())
+        return len(words) <= 8 and title_like_words >= max(1, len(words) // 2)
     
     def process_document(self, file_path: Path) -> Dict[str, Any]:
         """Process a document and extract embeddings using databases."""
@@ -632,7 +687,8 @@ class DocumentConverter:
     def _split_into_chunks(self, content: str, doc_name: str = None, chunk_size: int = None, chunk_overlap: int = None) -> List[Dict[str, Any]]:
         """Divide content into chunks with page tracking.
         
-        Returns list of dicts: [{'text': str, 'page': str}, ...]
+        Returns list of dicts:
+        [{'text': str, 'page': str, 'section_title': Optional[str]}, ...]
         """
         chunk_size = chunk_size or self.chunk_size
         chunk_overlap = chunk_overlap or self.chunk_overlap
@@ -645,14 +701,17 @@ class DocumentConverter:
         
         # Pattern to detect page markers
         page_pattern = re.compile(r'## Página (\d+)')
+        section_pattern = re.compile(r'### Seção:\s*(.+)')
         
         # Split by paragraphs and track current page
         paragraphs = content.split('\n\n')
-        chunks = []  # Lista de {'text': str, 'page': str}
+        chunks = []  # Lista de {'text': str, 'page': str, 'section_title': str}
         
         current_chunk = ""
         current_page = "1"
         chunk_start_page = "1"
+        current_section = None
+        chunk_start_section = None
         
         for paragraph in paragraphs:
             paragraph = paragraph.strip()
@@ -663,6 +722,14 @@ class DocumentConverter:
             page_match = page_pattern.search(paragraph)
             if page_match:
                 current_page = page_match.group(1)
+
+            section_match = section_pattern.search(paragraph)
+            if section_match:
+                current_section = section_match.group(1).strip()[:160]
+            else:
+                detected_section = self._detect_section_title(paragraph)
+                if detected_section:
+                    current_section = detected_section
             
             # If adding paragraph doesn't exceed chunk size
             if len(current_chunk) + len(paragraph) + 2 <= chunk_size:
@@ -671,18 +738,28 @@ class DocumentConverter:
                 else:
                     current_chunk = paragraph
                     chunk_start_page = current_page
+                    chunk_start_section = current_section
             else:
                 # Save current chunk if not empty
                 if current_chunk.strip():
-                    chunks.append({'text': current_chunk.strip(), 'page': chunk_start_page})
+                    chunks.append({
+                        'text': current_chunk.strip(),
+                        'page': chunk_start_page,
+                        'section_title': chunk_start_section,
+                    })
                 
                 # Start new chunk with paragraph
                 current_chunk = paragraph
                 chunk_start_page = current_page
+                chunk_start_section = current_section
         
         # Save last chunk
         if current_chunk.strip():
-            chunks.append({'text': current_chunk.strip(), 'page': chunk_start_page})
+            chunks.append({
+                'text': current_chunk.strip(),
+                'page': chunk_start_page,
+                'section_title': chunk_start_section,
+            })
         
         # Add overlap between chunks
         if chunk_overlap > 0 and len(chunks) > 1:
@@ -703,7 +780,8 @@ class DocumentConverter:
                     overlapped_text = chunk_info['text'][-chunk_overlap:] + " " + overlap_text
                     overlapped_chunks.append({
                         'text': overlapped_text.strip(),
-                        'page': chunk_info['page']
+                        'page': chunk_info['page'],
+                        'section_title': chunk_info.get('section_title'),
                     })
             
             self._log(f"Created {len(chunks)} original chunks + {len(chunks)-1} overlapped chunks = {len(overlapped_chunks)} total", "INFO")
@@ -776,10 +854,18 @@ class DocumentConverter:
                     chunk_index INTEGER,
                     content TEXT,
                     page_number TEXT,
+                    section_title TEXT,
                     created_at TIMESTAMP,
                     FOREIGN KEY (book_id) REFERENCES books (id)
                 )
             ''')
+            self.conn.execute(
+                'ALTER TABLE chunks ADD COLUMN section_title TEXT'
+            )
+        except sqlite3.OperationalError as e:
+            if 'duplicate column name' not in str(e).lower():
+                raise
+        try:
             
             # Table for system metadata
             self.conn.execute('''
@@ -924,7 +1010,7 @@ class DocumentConverter:
             self._log(f"Error saving book to SQLite: {e}", "ERROR")
     
     def _save_chunks_to_sqlite(self, book_id: str, chunks: List[Dict[str, Any]]):
-        """Save chunks to SQLite. Each chunk is {'text': str, 'page': str}."""
+        """Save chunks to SQLite with page and optional section metadata."""
         try:
             chunk_data = []
             for i, chunk_info in enumerate(chunks):
@@ -936,13 +1022,14 @@ class DocumentConverter:
                     i,
                     chunk_info['text'],
                     chunk_info['page'],
+                    chunk_info.get('section_title'),
                     datetime.now().isoformat()
                 ))
             
             self.conn.executemany('''
                 INSERT OR REPLACE INTO chunks 
-                (id, book_id, chunk_index, content, page_number, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                (id, book_id, chunk_index, content, page_number, section_title, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             ''', chunk_data)
             
             self.conn.commit()
@@ -951,7 +1038,7 @@ class DocumentConverter:
             self._log(f"Error saving chunks to SQLite: {e}", "ERROR")
     
     def _save_embeddings_to_chroma(self, book_id: str, chunks: List[Dict[str, Any]], embeddings: List[Any]):
-        """Save embeddings to ChromaDB in batches. Each chunk is {'text': str, 'page': str}."""
+        """Save embeddings to ChromaDB with page and section metadata."""
         try:
             batch_size = 500
             total = len(chunks)
@@ -961,7 +1048,15 @@ class DocumentConverter:
                 
                 ids = [f"{book_id}_chunk_{i}" for i in range(start, end)]
                 documents = [c['text'] for c in chunks[start:end]]
-                metadatas = [{"book_id": book_id, "chunk_index": i, "page": chunks[i]['page']} for i in range(start, end)]
+                metadatas = [
+                    {
+                        "book_id": book_id,
+                        "chunk_index": i,
+                        "page": chunks[i]['page'],
+                        "section_title": chunks[i].get('section_title') or "",
+                    }
+                    for i in range(start, end)
+                ]
                 embeddings_list = [emb.tolist() for emb in embeddings[start:end]]
                 
                 self.collection.add(
@@ -1001,6 +1096,7 @@ class DocumentConverter:
                     
                     book_id = metadata['book_id']
                     page = metadata.get('page', 'N/A')
+                    section_title = metadata.get('section_title') or None
                     
                     # Get book name from SQLite
                     book_name = self._get_book_name(book_id)
@@ -1013,6 +1109,8 @@ class DocumentConverter:
                         'query': query,
                         'book': book_name,
                         'page': page,
+                        'section_title': section_title,
+                        'citation': self._format_result_citation(book_name, page, section_title),
                         'phrase': clean_phrase,
                         'relevant_chunk': relevant_chunk,
                         'full_chunk': document,
@@ -1118,6 +1216,10 @@ class DocumentConverter:
                     print(f"\n**Result {i}** (Similarity: {result['similarity']:.3f}) {match_icon} [{match_type}]")
                     print(f"📄 **Document:** {result['book']}")
                     print(f"📖 **Page:** {result['page']}")
+                    if result.get('section_title'):
+                        print(f"📚 **Section/Chapter:** {result['section_title']}")
+                    if result.get('citation'):
+                        print(f"🔖 **Citation:** {result['citation']}")
                     print(f"🎯 **Relevant Chunk:** {result['relevant_chunk']}")
                     
                     # Options for the result
@@ -1184,6 +1286,10 @@ class DocumentConverter:
         print(f"{'='*80}")
         print(f"📄 **Document:** {result['book']}")
         print(f"📖 **Page:** {result['page']}")
+        if result.get('section_title'):
+            print(f"📚 **Section/Chapter:** {result['section_title']}")
+        if result.get('citation'):
+            print(f"🔖 **Citation:** {result['citation']}")
         print(f"🎯 **Similarity:** {result['similarity']:.3f}")
         print(f"🔍 **Original Query:** {result['query']}")
         print(f"\n📝 **Relevant Chunk:**")
@@ -1388,7 +1494,7 @@ class DocumentConverter:
         try:
             # Search chunks containing query text
             cursor = self.conn.execute('''
-                SELECT c.book_id, c.chunk_index, c.content, c.page_number, b.file_path
+                SELECT c.book_id, c.chunk_index, c.content, c.page_number, c.section_title, b.file_path
                 FROM chunks c
                 JOIN books b ON c.book_id = b.id
                 WHERE c.content LIKE ?
@@ -1403,11 +1509,18 @@ class DocumentConverter:
                 file_path = Path(row['file_path'])
                 relevant_chunk = self._extract_relevant_chunk(row['content'], query)
                 clean_phrase = self._clean_chunk_for_display(relevant_chunk)
+                section_title = row['section_title'] if 'section_title' in row.keys() else None
                 
                 results.append({
                     'query': query,
                     'book': file_path.name,
                     'page': row['page_number'] or 'N/A',
+                    'section_title': section_title,
+                    'citation': self._format_result_citation(
+                        file_path.name,
+                        row['page_number'] or 'N/A',
+                        section_title,
+                    ),
                     'phrase': clean_phrase,
                     'relevant_chunk': relevant_chunk,
                     'full_chunk': row['content'],
@@ -1429,6 +1542,7 @@ class DocumentConverter:
         """Clean chunk for table display."""
         # Remove page markers
         chunk = re.sub(r'## Página \d+', '', chunk)
+        chunk = re.sub(r'### Seção:\s*.+', '', chunk)
         chunk = re.sub(r'Página \d+', '', chunk)
         
         # Remove excessive line breaks
@@ -1436,6 +1550,16 @@ class DocumentConverter:
         
         # Keep full chunk for detailed display
         return chunk.strip()
+
+    @staticmethod
+    def _format_result_citation(book_name: str, page: Any, section_title: Optional[str] = None) -> str:
+        location_parts = []
+        if page and str(page) != 'N/A':
+            location_parts.append(f"p. {page}")
+        if section_title:
+            location_parts.append(f"secao/capitulo: {section_title}")
+        location = "; ".join(location_parts) if location_parts else "localizacao nao informada"
+        return f"{book_name} ({location})"
     
     def _extract_relevant_chunk(self, chunk: str, query: str) -> str:
         """Extract the most relevant part of the chunk in relation to the query."""
@@ -1549,7 +1673,7 @@ def main():
     parser.add_argument('--convert', type=str, help='Convert specific file')
     parser.add_argument('--convert-all', type=str, help='Convert all documents in directory')
     parser.add_argument('--calibre-id', type=int, help='Convert and index a book by Calibre ID')
-    parser.add_argument('--format', default='PDF', help='Format to use with --calibre-id (default: PDF)')
+    parser.add_argument('--format', help='Format to use with --calibre-id. If omitted, the best available format is selected')
     parser.add_argument('--calibre-metadata-db', default=os.getenv('CALIBRE_METADATA_DB') or DEFAULT_CALIBRE_METADATA_DB, help='Path to Calibre metadata.db for local fallback')
     parser.add_argument('--search', type=str, help='Search in processed documents')
     parser.add_argument('--interactive', '-i', action='store_true', help='Interactive search mode')
@@ -1682,6 +1806,10 @@ def main():
             print(f"\n**Result {i}** (Similarity: {result['similarity']:.3f}) {match_icon} [{match_type}]")
             print(f"📄 **Document:** {result['book']}")
             print(f"📖 **Page:** {result['page']}")
+            if result.get('section_title'):
+                print(f"📚 **Section/Chapter:** {result['section_title']}")
+            if result.get('citation'):
+                print(f"🔖 **Citation:** {result['citation']}")
             print(f"🎯 **Relevant Chunk:** {result['relevant_chunk']}")
             print("-" * 80)
         

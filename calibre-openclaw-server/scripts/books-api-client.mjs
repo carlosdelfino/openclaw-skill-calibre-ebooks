@@ -2,7 +2,7 @@
 
 import { writeFile } from "node:fs/promises";
 
-const DEFAULT_BASE_URL = "http://0.0.0.0:6180";
+const DEFAULT_BASE_URL = "http://127.0.0.1:6180";
 const QUERY_NAMES = ["q", "query", "search", "term", "text", "title", "author", "tag", "tags", "subject"];
 const LIMIT_NAMES = ["limit", "page_size", "pageSize", "per_page", "perPage", "size", "count"];
 

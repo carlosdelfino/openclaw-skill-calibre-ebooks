@@ -1,6 +1,11 @@
 # Calibre OpenClaw Server
 
-REST API server for managing a Calibre library with semantic search capabilities using embeddings.
+REST API server for managing a local Calibre library with semantic search
+capabilities using embeddings. It works only with books already present in the
+configured Calibre library and does not provide unauthorized book sources. For
+titles that are not in the local library, consult public catalog/store pages
+such as Google Books or Amazon Books for metadata, editions, publisher
+information, and lawful availability.
 
 ## Features
 
@@ -8,6 +13,8 @@ REST API server for managing a Calibre library with semantic search capabilities
 - **Multiple Formats**: Export books as PDF or Markdown (full book or specific pages)
 - **Cover Images**: Extract and serve book covers as JPG
 - **Semantic Search**: Content-based search using vector embeddings
+- **Citeable RAG Results**: Semantic hits include page, optional chapter/section,
+  citation text, similarity, and excerpt for richer reader-facing answers
 - **On-Demand Embeddings**: Generate embeddings only when requested
 - **Queue System**: Background processing for embedding generation
 - **Structured Logging**: JSON logs with daily rotation and compression
@@ -92,7 +99,8 @@ LOG_COMPRESS=true
 The PostgreSQL database should have the following tables (already created):
 
 - `books`: Book metadata from Calibre
-- `book_chunks`: Text chunks with embeddings (vector column)
+- `book_chunks`: Text chunks with embeddings, page/section citation metadata
+  and vector column
 - `processing_queue`: Queue for embedding generation tasks
 
 ## Running the Server

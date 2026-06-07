@@ -51,6 +51,10 @@ class SearchResult(BaseModel):
     title: str
     author: Optional[str] = None
     similarity: float
+    page_start: Optional[int] = None
+    page_end: Optional[int] = None
+    section_title: Optional[str] = None
+    citation: Optional[str] = None
     
     class Config:
         from_attributes = True
@@ -97,6 +101,7 @@ class EmbeddingModelInfoResponse(BaseModel):
     chunk_size: int
     chunk_overlap: int
     embedding_version: int
+    citation_schema_version: Optional[int] = None
     current_signature: Optional[str] = None
     stored_signature: Optional[str] = None
     stored_model: Optional[str] = None
@@ -113,6 +118,7 @@ class EmbeddingReindexResponse(BaseModel):
     signature: Optional[str] = None
     old_signature: Optional[str] = None
     new_signature: Optional[str] = None
+    reason: Optional[str] = None
     error: Optional[str] = None
 
 

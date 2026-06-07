@@ -3,13 +3,15 @@ from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import time
+import uuid
 from contextlib import asynccontextmanager
 
 from app.config import settings
 from app.database.postgres_db import postgres_db
 from app.utils.logger import setup_logger, get_logger
-from app.api.routes import books, search, embeddings, stats, websocket
+from app.api.routes import books, search, embeddings, stats, websocket, network
 from app.services.book_service import book_service
+from app.services.network_service import monitor_network_bindings
 
 # Setup logger
 setup_logger()
@@ -82,9 +84,10 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Background sync failed: {e}", exc_info=True)
     
-    # Start background sync task and store reference
+    # Start background tasks and store references
     import asyncio
     sync_task = asyncio.create_task(background_sync())
+    network_task = asyncio.create_task(monitor_network_bindings())
     
     # Print server information
     print("\n" + "="*60)
@@ -106,6 +109,7 @@ async def lifespan(app: FastAPI):
     print(f"  - GET  /api/books/sync/status  - Check sync status")
     print(f"  - GET  /api/books/{{id}}         - Get book details")
     print(f"  - GET  /api/books/{{id}}/cover   - Get book cover (JPG)")
+    print(f"  - GET  /api/books/{{id}}/file    - Get selected available book file")
     print(f"  - GET  /api/books/{{id}}/pdf     - Get complete PDF")
     print(f"  - GET  /api/books/{{id}}/markdown - Get book as Markdown")
     print(f"  - GET  /api/search              - Search by metadata")
@@ -117,6 +121,7 @@ async def lifespan(app: FastAPI):
     print(f"  - GET  /api/stats/library       - Library and RAG summary")
     print(f"  - GET  /api/stats/queries       - Query statistics")
     print(f"  - GET  /api/stats/overview     - Overview statistics")
+    print(f"  - GET  /api/network/bindings    - Active network interface URLs")
     print(f"  - WS   /ws/stats                - Real-time statistics updates")
     print(f"  - GET  /dashboard               - Real-time dashboard UI")
     print(f"\nConfiguration:")
@@ -148,6 +153,18 @@ async def lifespan(app: FastAPI):
             logger.warning("Background sync task did not cancel in time")
         except Exception as e:
             logger.error(f"Error cancelling sync task: {e}")
+
+    if network_task and not network_task.done():
+        logger.info("Cancelling network binding monitor...")
+        network_task.cancel()
+        try:
+            await asyncio.wait_for(network_task, timeout=5.0)
+        except asyncio.CancelledError:
+            logger.info("Network binding monitor cancelled")
+        except asyncio.TimeoutError:
+            logger.warning("Network binding monitor did not cancel in time")
+        except Exception as e:
+            logger.error(f"Error cancelling network binding monitor: {e}")
     
     postgres_db.close_pool()
     logger.info("PostgreSQL connection pool closed")
@@ -175,34 +192,73 @@ app.add_middleware(
 # Logging middleware
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    """Middleware to log all requests."""
+    """Middleware to log all requests with terminal-friendly details."""
+    request_id = request.headers.get("x-request-id") or uuid.uuid4().hex[:12]
     start_time = time.time()
+    client_ip = request.client.host if request.client else None
+    query = str(request.url.query) if request.url.query else None
+    user_agent = request.headers.get("user-agent")
     
-    # Log request
     logger.info(
-        f"Request: {request.method} {request.url.path}",
+        f"Request started: {request.method} {request.url.path}",
         extra={
+            "request_id": request_id,
             "method": request.method,
             "endpoint": str(request.url.path),
-            "ip": request.client.host if request.client else None
-        }
+            "query": query,
+            "ip": client_ip,
+            "operation": "http_request_start",
+        },
     )
     
-    # Process request
-    response = await call_next(request)
-    
-    # Calculate duration
-    duration = time.time() - start_time
-    
-    # Log response
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_ms = round((time.time() - start_time) * 1000, 2)
+        logger.error(
+            f"Request failed: {request.method} {request.url.path}",
+            exc_info=True,
+            extra={
+                "request_id": request_id,
+                "method": request.method,
+                "endpoint": str(request.url.path),
+                "query": query,
+                "ip": client_ip,
+                "duration_ms": duration_ms,
+                "operation": "http_request_error",
+            },
+        )
+        raise
+
+    duration_ms = round((time.time() - start_time) * 1000, 2)
+    response.headers["X-Request-ID"] = request_id
+    content_length = response.headers.get("content-length")
     logger.info(
-        f"Response: {response.status_code}",
+        f"Request completed: {request.method} {request.url.path} -> {response.status_code}",
         extra={
+            "request_id": request_id,
+            "method": request.method,
+            "endpoint": str(request.url.path),
+            "query": query,
+            "ip": client_ip,
             "status_code": response.status_code,
-            "duration": duration
-        }
+            "duration": duration_ms / 1000,
+            "duration_ms": duration_ms,
+            "bytes": content_length,
+            "operation": "http_request_end",
+        },
     )
-    
+
+    if user_agent:
+        logger.debug(
+            "Request user agent",
+            extra={
+                "request_id": request_id,
+                "endpoint": str(request.url.path),
+                "operation": "http_request_user_agent",
+            },
+        )
+
     return response
 
 
@@ -212,6 +268,7 @@ app.include_router(search.router)
 app.include_router(embeddings.router)
 app.include_router(stats.router)
 app.include_router(websocket.router)
+app.include_router(network.router)
 
 
 # Root endpoint - Serve dashboard

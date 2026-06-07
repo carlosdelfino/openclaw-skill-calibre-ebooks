@@ -114,9 +114,7 @@ async def list_problem_books():
             
             # Check if file exists
             if book.get('file_path'):
-                full_path = Path(book['file_path'])
-                if not full_path.is_absolute():
-                    full_path = Path(settings.CALIBRE_LIBRARY_PATH) / full_path
+                full_path = Path(settings.CALIBRE_LIBRARY_PATH) / book['file_path']
                 if not full_path.exists():
                     problems.append("File not found")
             else:
@@ -183,7 +181,7 @@ async def get_book_cover(book_id: int):
 
 @router.get("/{book_id}/pdf")
 async def get_book_pdf(book_id: int):
-    """Get the complete PDF file for a book when PDF is the selected format."""
+    """Get the complete PDF file for a book."""
     try:
         pdf_data = book_service.get_book_pdf(book_id)
         if not pdf_data:
@@ -198,29 +196,6 @@ async def get_book_pdf(book_id: int):
         raise
     except Exception as e:
         logger.error(f"Error getting PDF for book {book_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/{book_id}/file")
-async def get_book_file(book_id: int):
-    """Get the book file in the selected available Calibre format."""
-    try:
-        file_info = book_service.get_book_file(book_id)
-        if not file_info:
-            raise HTTPException(status_code=404, detail="Book file not found")
-
-        return Response(
-            content=file_info["data"],
-            media_type=file_info["media_type"],
-            headers={
-                "Content-Disposition": f"inline; filename={file_info['filename']}",
-                "X-Book-Format": file_info["format"],
-            },
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting file for book {book_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

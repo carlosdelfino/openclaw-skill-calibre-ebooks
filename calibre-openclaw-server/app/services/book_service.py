@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+import mimetypes
 
 from app.config import settings
 from app.database.calibre_db import CalibreDB
@@ -21,26 +22,40 @@ class BookService:
         """Synchronize books from Calibre to PostgreSQL, including removal of deleted books."""
         try:
             # Get all books from Calibre
+            logger.info(
+                "Starting Calibre to PostgreSQL synchronization",
+                extra={"operation": "sync_start"},
+            )
             calibre_books = self.calibre_db.get_all_books()
             calibre_ids = {book['calibre_id'] for book in calibre_books}
             
             synced_count = 0
             removed_count = 0
+            skipped_no_file = 0
+            skipped_missing_path = 0
+            total = len(calibre_books)
             
-            for book in calibre_books:
+            logger.info(
+                f"Loaded {total} books from Calibre metadata",
+                extra={"operation": "sync_loaded", "total": total},
+            )
+
+            for index, book in enumerate(calibre_books, start=1):
                 calibre_id = book['calibre_id']
                 
-                # Get file path from Calibre
-                file_path = self.calibre_db.get_book_file_path(calibre_id)
-                if not file_path:
+                # Get the best available file from Calibre, not only PDF.
+                file_info = self.calibre_db.get_book_file_info(calibre_id)
+                if not file_info:
+                    skipped_no_file += 1
                     logger.warning(f"No file path found for book {calibre_id} - Title: {book['title']}")
                     continue
                 
                 # Build full path
-                full_path = self.library_path / file_path
+                full_path = self.library_path / file_info["path"]
                 
                 # Check if file exists
                 if not full_path.exists():
+                    skipped_missing_path += 1
                     logger.warning(f"File not found for book {calibre_id} - Title: {book['title']}")
                     continue
                 
@@ -55,7 +70,9 @@ class BookService:
                     'series_index': book.get('series_index'),
                     'tags': tags,
                     'publishers': publishers,
-                    'last_modified': book.get('last_modified')
+                    'last_modified': book.get('last_modified'),
+                    'selected_format': file_info["format"],
+                    'available_formats': file_info["available_formats"],
                 }
                 
                 # Insert or update in PostgreSQL
@@ -67,6 +84,17 @@ class BookService:
                     metadata=metadata
                 )
                 synced_count += 1
+
+                if index == total or index % 500 == 0:
+                    logger.info(
+                        f"Sync progress: {index}/{total} scanned, {synced_count} synced",
+                        extra={
+                            "operation": "sync_progress",
+                            "current": index,
+                            "total": total,
+                            "count": synced_count,
+                        },
+                    )
             
             # Remove books that are no longer in Calibre
             postgres_books = postgres_db.get_all_books(limit=1000000, offset=0)
@@ -81,6 +109,23 @@ class BookService:
             
             logger.info(f"Synchronized {synced_count} books from Calibre to PostgreSQL")
             logger.info(f"Removed {removed_count} books that were deleted from Calibre")
+            logger.info(
+                "Calibre synchronization finished",
+                extra={
+                    "operation": "sync_finished",
+                    "total": total,
+                    "count": synced_count,
+                },
+            )
+            if skipped_no_file or skipped_missing_path:
+                logger.warning(
+                    f"Sync skipped {skipped_no_file} books without formats and "
+                    f"{skipped_missing_path} books with missing files",
+                    extra={
+                        "operation": "sync_skipped",
+                        "total": skipped_no_file + skipped_missing_path,
+                    },
+                )
             
             # Update the mtime after successful sync
             from pathlib import Path
@@ -130,13 +175,41 @@ class BookService:
     def search_books(self, query: str, limit: int = 50) -> List[Dict[str, Any]]:
         """Search books by title, author, or metadata."""
         return postgres_db.search_books(query, limit)
-    
-    def get_book_pdf_path(self, book_id: int) -> Optional[Path]:
-        """Get the PDF file path for a book."""
+
+    def _book_file_path(self, book_id: int) -> Optional[Path]:
         book = postgres_db.get_book_by_id(book_id)
-        if book:
+        if book and book.get('file_path'):
             return Path(book['file_path'])
         return None
+
+    @staticmethod
+    def _book_file_format(file_path: Path) -> str:
+        return file_path.suffix.lstrip('.').upper()
+
+    @staticmethod
+    def _book_media_type(file_path: Path) -> str:
+        media_type, _ = mimetypes.guess_type(file_path.name)
+        return media_type or "application/octet-stream"
+    
+    def get_book_pdf_path(self, book_id: int) -> Optional[Path]:
+        """Get the file path for a book when the selected format is PDF."""
+        file_path = self._book_file_path(book_id)
+        if file_path and file_path.suffix.lower() == '.pdf':
+            return file_path
+        return None
+
+    def get_book_file_info(self, book_id: int) -> Optional[Dict[str, Any]]:
+        """Get metadata for the selected available book file."""
+        file_path = self._book_file_path(book_id)
+        if not file_path or not file_path.exists():
+            return None
+        return {
+            "path": file_path,
+            "filename": file_path.name,
+            "format": self._book_file_format(file_path),
+            "media_type": self._book_media_type(file_path),
+            "size": file_path.stat().st_size,
+        }
     
     def get_book_cover(self, book_id: int) -> Optional[bytes]:
         """Get the cover image for a book."""
@@ -150,6 +223,14 @@ class BookService:
         pdf_path = self.get_book_pdf_path(book_id)
         if pdf_path and pdf_path.exists():
             return conversion_service.get_pdf_bytes(pdf_path)
+        return None
+
+    def get_book_file(self, book_id: int) -> Optional[Dict[str, Any]]:
+        """Get the selected available book file and response metadata."""
+        info = self.get_book_file_info(book_id)
+        if info:
+            info["data"] = conversion_service.get_file_bytes(info["path"])
+            return info
         return None
     
     def get_book_page_pdf(self, book_id: int, page_num: int) -> Optional[bytes]:

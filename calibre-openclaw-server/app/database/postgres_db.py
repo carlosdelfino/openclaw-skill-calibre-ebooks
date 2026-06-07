@@ -73,13 +73,16 @@ class PostgreSQLDB:
         """Ensure embedding bookkeeping columns exist (idempotent migration)."""
         query = """
         ALTER TABLE book_chunks
-            ADD COLUMN IF NOT EXISTS embedding_model TEXT
+            ADD COLUMN IF NOT EXISTS embedding_model TEXT,
+            ADD COLUMN IF NOT EXISTS page_start INTEGER,
+            ADD COLUMN IF NOT EXISTS page_end INTEGER,
+            ADD COLUMN IF NOT EXISTS section_title TEXT
         """
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(query)
-                logger.info("book_chunks.embedding_model column ensured")
+                logger.info("book_chunks embedding/citation columns ensured")
         except Exception as e:
             # book_chunks may not exist yet on a fresh database; log and continue.
             logger.warning(f"Could not ensure embeddings schema (will retry later): {e}")
@@ -166,6 +169,24 @@ class PostgreSQLDB:
                 requeued,
             )
             return cleared
+
+    def count_embeddings_missing_citation_metadata(self) -> int:
+        """Count embedded chunks that cannot cite at least a page number."""
+        query = """
+        SELECT COUNT(*) AS count
+        FROM book_chunks
+        WHERE embedding IS NOT NULL
+          AND page_start IS NULL
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor(cursor_factory=RealDictCursor)
+                cursor.execute(query)
+                result = cursor.fetchone()
+                return result["count"] if result else 0
+        except Exception as e:
+            logger.warning(f"Could not count missing citation metadata: {e}")
+            return 0
     
     def get_calibre_db_mtime(self) -> Optional[float]:
         """Get the last modification time of Calibre metadata.db stored in PostgreSQL."""
@@ -297,22 +318,43 @@ class PostgreSQLDB:
     # Book chunks operations
     def insert_chunk(self, book_id: int, chunk_index: int, content: str, 
                      embedding: Optional[List[float]] = None,
-                     embedding_model: Optional[str] = None) -> int:
-        """Insert a book chunk with optional embedding and the model used."""
+                     embedding_model: Optional[str] = None,
+                     page_start: Optional[int] = None,
+                     page_end: Optional[int] = None,
+                     section_title: Optional[str] = None) -> int:
+        """Insert a book chunk with optional embedding and citation metadata."""
         query = """
-        INSERT INTO book_chunks (book_id, chunk_index, content, embedding, embedding_model)
-        VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO book_chunks (
+            book_id, chunk_index, content, embedding, embedding_model,
+            page_start, page_end, section_title
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (book_id, chunk_index)
         DO UPDATE SET 
             content = EXCLUDED.content,
             embedding = EXCLUDED.embedding,
-            embedding_model = EXCLUDED.embedding_model
+            embedding_model = EXCLUDED.embedding_model,
+            page_start = EXCLUDED.page_start,
+            page_end = EXCLUDED.page_end,
+            section_title = EXCLUDED.section_title
         RETURNING id
         """
         
         with self.get_connection() as conn:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
-            cursor.execute(query, (book_id, chunk_index, content, embedding, embedding_model))
+            cursor.execute(
+                query,
+                (
+                    book_id,
+                    chunk_index,
+                    content,
+                    embedding,
+                    embedding_model,
+                    page_start,
+                    page_end,
+                    section_title,
+                ),
+            )
             result = cursor.fetchone()
             return result['id']
     
@@ -371,9 +413,13 @@ class PostgreSQLDB:
         query = """
         SELECT 
             bc.id,
+            bc.id as chunk_id,
             bc.book_id,
             bc.chunk_index,
             bc.content,
+            bc.page_start,
+            bc.page_end,
+            bc.section_title,
             b.title,
             b.author,
             1 - (bc.embedding <=> %s) as similarity

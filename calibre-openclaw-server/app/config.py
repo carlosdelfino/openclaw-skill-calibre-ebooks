@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     
     # Logs
     LOG_DIR: str = Field(default="/mnt/Backup_2/Biblioteca/logs")
+    LOG_LEVEL: str = Field(default="INFO")
     LOG_RETENTION_DAYS: int = Field(default=30)
     LOG_COMPRESS: bool = Field(default=True)
     

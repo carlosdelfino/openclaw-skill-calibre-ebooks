@@ -1,5 +1,5 @@
 import httpx
-from typing import List, Optional
+from typing import Any, List, Optional
 from pathlib import Path
 
 from app.config import settings
@@ -13,6 +13,7 @@ logger = get_logger(__name__)
 SIGNATURE_KEY = "embedding_signature"
 MODEL_KEY = "embedding_model"
 DIMENSION_KEY = "embedding_dimension"
+CITATION_SCHEMA_VERSION = 2
 
 
 class EmptyDocumentError(Exception):
@@ -95,6 +96,7 @@ class EmbeddingService:
             f"|dim={dimension}"
             f"|chunk={settings.CHUNK_SIZE}"
             f"|overlap={settings.CHUNK_OVERLAP}"
+            f"|citation_schema={CITATION_SCHEMA_VERSION}"
             f"|v={settings.EMBEDDING_VERSION}"
         )
     
@@ -106,6 +108,7 @@ class EmbeddingService:
             "chunk_size": settings.CHUNK_SIZE,
             "chunk_overlap": settings.CHUNK_OVERLAP,
             "embedding_version": settings.EMBEDDING_VERSION,
+            "citation_schema_version": CITATION_SCHEMA_VERSION,
             "stored_signature": stored_sig,
             "stored_model": postgres_db.get_setting(MODEL_KEY),
             "stored_dimension": postgres_db.get_setting(DIMENSION_KEY),
@@ -146,15 +149,37 @@ class EmbeddingService:
 
         current_sig = self._build_signature(dimension)
         stored_sig = postgres_db.get_setting(SIGNATURE_KEY)
+        missing_citations = postgres_db.count_embeddings_missing_citation_metadata()
 
         if stored_sig is None:
+            if missing_citations:
+                invalidated = postgres_db.invalidate_all_embeddings(dimension)
+                self._store_signature(dimension, current_sig)
+                logger.warning(
+                    "Invalidated %s embedding(s) missing citation metadata; "
+                    "they will be regenerated with page/section citations.",
+                    invalidated,
+                )
+                return {
+                    "changed": True,
+                    "invalidated": invalidated,
+                    "reason": "missing_citation_metadata",
+                    "new_signature": current_sig,
+                }
             self._store_signature(dimension, current_sig)
             logger.info("Embedding signature baseline recorded: %s", current_sig)
             return {"changed": False, "baseline": True, "signature": current_sig}
 
-        if stored_sig == current_sig:
+        if stored_sig == current_sig and not missing_citations:
             logger.info("Embedding signature unchanged: %s", current_sig)
             return {"changed": False, "signature": current_sig}
+
+        if stored_sig == current_sig and missing_citations:
+            logger.warning(
+                "%s embedding(s) are missing citation metadata despite current "
+                "signature; invalidating for regeneration.",
+                missing_citations,
+            )
 
         logger.warning(
             "Embedding configuration changed; invalidating all embeddings.\n"
@@ -178,17 +203,32 @@ class EmbeddingService:
     def generate_embeddings_for_book(self, book_id: int, pdf_path: Path) -> int:
         """Generate and store embeddings for all chunks of a book."""
         try:
-            # Convert PDF to text
-            text = conversion_service.pdf_to_text(pdf_path)
-            
-            # Split into chunks (empty/whitespace-only chunks are dropped)
-            chunks = conversion_service.chunk_text(text)
+            logger.info(
+                f"Starting embedding generation for book {book_id}",
+                extra={
+                    "operation": "embedding_book_start",
+                    "book_id": book_id,
+                    "format": pdf_path.suffix.lstrip(".").upper(),
+                },
+            )
+            # Convert PDF to citeable chunks. Each chunk keeps page and a best
+            # effort chapter/section heading so RAG answers can cite location.
+            chunks = conversion_service.pdf_to_page_chunks(pdf_path)
             if not chunks:
                 raise EmptyDocumentError(
                     f"Book {book_id} produced no usable text (scanned PDF needing OCR?)"
                 )
-            
             expected_dim = self.get_model_dimension()
+            postgres_db.delete_chunks_for_book(book_id)
+            total_chunks = len(chunks)
+            logger.info(
+                f"Book {book_id} text converted into {total_chunks} chunks",
+                extra={
+                    "operation": "embedding_chunks_ready",
+                    "book_id": book_id,
+                    "total": total_chunks,
+                },
+            )
             
             # Generate embeddings for each chunk, validating dimensions.
             # Token-dense chunks (e.g. dense math) may overflow the model's
@@ -196,12 +236,31 @@ class EmbeddingService:
             # CHUNK_SIZE; those are split and retried instead of failing the
             # whole book.
             stored = 0
-            for chunk in chunks:
+            for index, chunk in enumerate(chunks, start=1):
                 stored += self._embed_and_store_chunk(
                     book_id, stored, chunk, expected_dim
                 )
+                if index == total_chunks or index % 25 == 0:
+                    logger.info(
+                        f"Embedding progress for book {book_id}: {index}/{total_chunks} chunks scanned, {stored} stored",
+                        extra={
+                            "operation": "embedding_progress",
+                            "book_id": book_id,
+                            "current": index,
+                            "total": total_chunks,
+                            "count": stored,
+                        },
+                    )
             
-            logger.info(f"Generated {stored} embeddings for book {book_id}")
+            logger.info(
+                f"Generated {stored} embeddings for book {book_id}",
+                extra={
+                    "operation": "embedding_book_finished",
+                    "book_id": book_id,
+                    "count": stored,
+                    "total": total_chunks,
+                },
+            )
             return stored
         except Exception as e:
             logger.error(f"Error generating embeddings for book {book_id}: {e}")
@@ -211,7 +270,7 @@ class EmbeddingService:
         self,
         book_id: int,
         next_index: int,
-        chunk: str,
+        chunk: Any,
         expected_dim: int,
         min_chars: int = 80,
         depth: int = 0,
@@ -222,32 +281,37 @@ class EmbeddingService:
         split). When a fragment is still too dense to embed even at the minimum
         size, it is skipped (logged) rather than aborting the whole book.
         """
+        chunk_info = self._normalize_chunk_info(chunk)
+        content = chunk_info["content"]
+
         try:
-            embedding = self.generate_embedding(chunk)
+            embedding = self.generate_embedding(content)
         except ContextLengthExceededError:
-            if len(chunk) <= min_chars or depth >= 12:
+            if len(content) <= min_chars or depth >= 12:
                 logger.warning(
                     "Skipping un-embeddable fragment for book %s "
                     "(%s chars still exceeds context window after splitting)",
                     book_id,
-                    len(chunk),
+                    len(content),
                 )
                 return 0
-            left, right = self._split_text(chunk)
+            left, right = self._split_text(content)
             logger.info(
                 "Chunk for book %s exceeded context window; splitting "
                 "%s chars -> %s + %s chars (depth=%s)",
                 book_id,
-                len(chunk),
+                len(content),
                 len(left),
                 len(right),
                 depth + 1,
             )
+            left_info = {**chunk_info, "content": left}
+            right_info = {**chunk_info, "content": right}
             stored = self._embed_and_store_chunk(
-                book_id, next_index, left, expected_dim, min_chars, depth + 1
+                book_id, next_index, left_info, expected_dim, min_chars, depth + 1
             )
             stored += self._embed_and_store_chunk(
-                book_id, next_index + stored, right, expected_dim, min_chars, depth + 1
+                book_id, next_index + stored, right_info, expected_dim, min_chars, depth + 1
             )
             return stored
 
@@ -258,9 +322,58 @@ class EmbeddingService:
                 f"Model '{settings.OLLAMA_MODEL}' may have changed."
             )
         postgres_db.insert_chunk(
-            book_id, next_index, chunk, embedding, settings.OLLAMA_MODEL
+            book_id,
+            next_index,
+            content,
+            embedding,
+            settings.OLLAMA_MODEL,
+            page_start=chunk_info.get("page_start"),
+            page_end=chunk_info.get("page_end"),
+            section_title=chunk_info.get("section_title"),
         )
         return 1
+
+    @staticmethod
+    def _normalize_chunk_info(chunk: Any) -> dict:
+        if isinstance(chunk, dict):
+            return {
+                "content": chunk.get("content") or chunk.get("text") or "",
+                "page_start": chunk.get("page_start") or chunk.get("page"),
+                "page_end": chunk.get("page_end") or chunk.get("page_start") or chunk.get("page"),
+                "section_title": chunk.get("section_title") or chunk.get("section"),
+            }
+        return {
+            "content": chunk,
+            "page_start": None,
+            "page_end": None,
+            "section_title": None,
+        }
+
+    @staticmethod
+    def _format_citation(result: dict) -> str:
+        """Build a human-readable citation from search metadata."""
+        location_parts = []
+        page_start = result.get("page_start")
+        page_end = result.get("page_end")
+        if page_start and page_end and page_start != page_end:
+            location_parts.append(f"pp. {page_start}-{page_end}")
+        elif page_start:
+            location_parts.append(f"p. {page_start}")
+
+        section_title = result.get("section_title")
+        if section_title:
+            location_parts.append(f"secao/capitulo: {section_title}")
+
+        location = (
+            "; ".join(location_parts)
+            if location_parts
+            else "localizacao nao informada"
+        )
+        title = result.get("title") or f"book_id {result.get('book_id')}"
+        author = result.get("author")
+        if author:
+            return f"{title}, {author} ({location})"
+        return f"{title} ({location})"
 
     @staticmethod
     def _split_text(text: str) -> tuple[str, str]:
@@ -288,6 +401,8 @@ class EmbeddingService:
             
             # Perform semantic search in PostgreSQL
             results = postgres_db.semantic_search(query_embedding, limit, threshold)
+            for result in results:
+                result["citation"] = self._format_citation(result)
             
             logger.info(f"Semantic search for '{query}' returned {len(results)} results")
             return results
@@ -323,6 +438,14 @@ class EmbeddingService:
             # Check if already queued
             existing = postgres_db.get_queue_status(book_id)
             if existing and existing['status'] in ['pending', 'processing']:
+                logger.info(
+                    f"Book {book_id} is already in embedding queue with status {existing['status']}",
+                    extra={
+                        "operation": "embedding_already_queued",
+                        "book_id": book_id,
+                        "queue_id": existing["id"],
+                    },
+                )
                 return {
                     "book_id": book_id,
                     "status": "already_queued",
@@ -346,6 +469,14 @@ class EmbeddingService:
     def process_queue_item(self, queue_id: int, book_id: int, pdf_path: Path) -> int:
         """Process a single queue item (background task)."""
         try:
+            logger.info(
+                f"Starting queue item {queue_id} for book {book_id}",
+                extra={
+                    "operation": "queue_item_start",
+                    "queue_id": queue_id,
+                    "book_id": book_id,
+                },
+            )
             # Update status to processing
             postgres_db.update_queue_status(queue_id, 'processing')
             
@@ -355,12 +486,28 @@ class EmbeddingService:
             # Update status to completed
             postgres_db.update_queue_status(queue_id, 'completed')
             
-            logger.info(f"Successfully processed queue item {queue_id} for book {book_id} ({chunk_count} chunks)")
+            logger.info(
+                f"Successfully processed queue item {queue_id} for book {book_id} ({chunk_count} chunks)",
+                extra={
+                    "operation": "queue_item_finished",
+                    "queue_id": queue_id,
+                    "book_id": book_id,
+                    "count": chunk_count,
+                },
+            )
             return chunk_count
         except Exception as e:
             # Update status to failed
             postgres_db.update_queue_status(queue_id, 'failed', str(e))
-            logger.error(f"Failed to process queue item {queue_id} for book {book_id}: {e}")
+            logger.error(
+                f"Failed to process queue item {queue_id} for book {book_id}: {e}",
+                exc_info=True,
+                extra={
+                    "operation": "queue_item_failed",
+                    "queue_id": queue_id,
+                    "book_id": book_id,
+                },
+            )
             raise
     
     def get_queue_status(self, book_id: int) -> Optional[dict]:

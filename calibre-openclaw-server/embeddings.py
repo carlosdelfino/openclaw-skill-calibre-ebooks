@@ -65,10 +65,10 @@ async def generate_embeddings(book_id: int, background_tasks: BackgroundTasks):
         if not book:
             raise HTTPException(status_code=404, detail="Book not found")
         
-        # Server-side embedding generation still uses the PDF conversion path.
+        # Get PDF path
         pdf_path = book_service.get_book_pdf_path(book_id)
         if not pdf_path or not pdf_path.exists():
-            raise HTTPException(status_code=404, detail="Selected book file is not an available PDF")
+            raise HTTPException(status_code=404, detail="PDF file not found")
         
         # Queue the embedding generation
         queue_response = embedding_service.queue_embedding_generation(book_id, pdf_path)

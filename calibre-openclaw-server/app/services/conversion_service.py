@@ -1,7 +1,7 @@
 import fitz  # PyMuPDF
+import re
 from pathlib import Path
-from typing import List, Optional
-import io
+from typing import List, Optional, Dict, Any
 
 from app.config import settings
 from app.utils.logger import get_logger
@@ -11,6 +11,12 @@ logger = get_logger(__name__)
 
 class ConversionService:
     """Service for converting PDF files to Markdown and extracting content."""
+    SECTION_PREFIX_RE = re.compile(
+        r"^\s*(cap[ií]tulo|chapter|parte|part|se[cç][aã]o|section|"
+        r"livro|book|pref[aá]cio|introdu[cç][aã]o|conclus[aã]o|ap[eê]ndice|"
+        r"appendix)\b",
+        re.IGNORECASE,
+    )
     
     @staticmethod
     def pdf_to_text(pdf_path: Path) -> str:
@@ -25,6 +31,55 @@ class ConversionService:
             return text
         except Exception as e:
             logger.error(f"Error converting PDF {pdf_path} to text: {e}")
+            raise
+
+    def pdf_to_page_chunks(
+        self,
+        pdf_path: Path,
+        chunk_size: int = None,
+        overlap: int = None,
+    ) -> List[Dict[str, Any]]:
+        """Extract PDF text into chunks that preserve page and section metadata.
+
+        The server-side RAG currently indexes PDFs. Chunking per page keeps every
+        search hit citeable to a page. Section/chapter detection is heuristic:
+        it tracks likely headings found in the page text and carries the most
+        recent heading forward until another one appears.
+        """
+        try:
+            doc = fitz.open(pdf_path)
+            chunks: List[Dict[str, Any]] = []
+            current_section: Optional[str] = None
+
+            for page_index, page in enumerate(doc, start=1):
+                text = page.get_text()
+                if not text or not text.strip():
+                    continue
+
+                page_section = self.detect_section_title(text)
+                if page_section:
+                    current_section = page_section
+
+                for chunk in self.chunk_text(text, chunk_size, overlap):
+                    chunk_section = self.detect_section_title(chunk)
+                    if chunk_section:
+                        current_section = chunk_section
+                    chunks.append(
+                        {
+                            "content": chunk,
+                            "page_start": page_index,
+                            "page_end": page_index,
+                            "section_title": current_section,
+                        }
+                    )
+
+            doc.close()
+            logger.info(
+                f"Converted PDF {pdf_path} into {len(chunks)} citeable chunks"
+            )
+            return chunks
+        except Exception as e:
+            logger.error(f"Error converting PDF {pdf_path} to citeable chunks: {e}")
             raise
     
     @staticmethod
@@ -166,6 +221,37 @@ class ConversionService:
             f"Split text into {len(chunks)} chunks (size={chunk_size}, overlap={overlap})"
         )
         return chunks
+
+    @classmethod
+    def detect_section_title(cls, text: str) -> Optional[str]:
+        """Return a likely chapter/section title from a page or chunk."""
+        for raw_line in (text or "").splitlines():
+            line = " ".join(raw_line.strip().split())
+            if not cls._looks_like_section_title(line):
+                continue
+            return line[:160]
+        return None
+
+    @classmethod
+    def _looks_like_section_title(cls, line: str) -> bool:
+        if not line or len(line) < 4 or len(line) > 140:
+            return False
+        if not re.search(r"[A-Za-zÀ-ÖØ-öø-ÿ]", line):
+            return False
+        if line.endswith((".", ",", ";", ":")) and not cls.SECTION_PREFIX_RE.search(line):
+            return False
+        words = line.split()
+        if len(words) > 14:
+            return False
+        if cls.SECTION_PREFIX_RE.search(line):
+            return True
+        letters = [char for char in line if char.isalpha()]
+        if letters:
+            uppercase_ratio = sum(1 for char in letters if char.isupper()) / len(letters)
+            if uppercase_ratio >= 0.65:
+                return True
+        title_like_words = sum(1 for word in words if word[:1].isupper())
+        return len(words) <= 8 and title_like_words >= max(1, len(words) // 2)
     
     @staticmethod
     def get_pdf_bytes(pdf_path: Path) -> bytes:
@@ -175,6 +261,16 @@ class ConversionService:
                 return f.read()
         except Exception as e:
             logger.error(f"Error reading PDF file {pdf_path}: {e}")
+            raise
+
+    @staticmethod
+    def get_file_bytes(file_path: Path) -> bytes:
+        """Read any book file as bytes."""
+        try:
+            with open(file_path, 'rb') as f:
+                return f.read()
+        except Exception as e:
+            logger.error(f"Error reading book file {file_path}: {e}")
             raise
 
 

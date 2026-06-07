@@ -8,6 +8,8 @@ from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+FORMAT_PRIORITY = ["PDF", "EPUB", "AZW3", "MOBI", "DJVU", "FB2", "TXT", "RTF", "DOCX", "HTMLZ"]
+
 
 @contextmanager
 def get_calibre_db():
@@ -139,34 +141,57 @@ class CalibreDB:
             return []
     
     @staticmethod
-    def get_book_file_path(calibre_id: int) -> Optional[str]:
-        """Get the file path for a book's main format."""
+    def get_book_file_info(calibre_id: int, preferred_format: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Get the path and format for the best available book file."""
         query = """
         SELECT b.path, d.name, d.format
         FROM data d
         JOIN books b ON d.book = b.id
         WHERE b.id = ?
         ORDER BY d.format
-        LIMIT 1
         """
         
         try:
             with get_calibre_db() as conn:
                 cursor = conn.cursor()
                 cursor.execute(query, (calibre_id,))
-                row = cursor.fetchone()
-                if row:
-                    dir_path = row['path']
-                    file_name = row['name']
-                    file_format = row['format'].lower()
-                    
-                    # Simply concatenate the path - pathlib handles spaces and special chars
-                    file_path = f"{dir_path}/{file_name}.{file_format}"
-                    return file_path
+                rows = [dict(row) for row in cursor.fetchall()]
+                if rows:
+                    available_formats = [row["format"].upper() for row in rows]
+                    selected = None
+                    if preferred_format:
+                        selected = next(
+                            (row for row in rows if row["format"].upper() == preferred_format.upper()),
+                            None,
+                        )
+                    if selected is None:
+                        selected = min(
+                            rows,
+                            key=lambda row: (
+                                FORMAT_PRIORITY.index(row["format"].upper())
+                                if row["format"].upper() in FORMAT_PRIORITY
+                                else len(FORMAT_PRIORITY),
+                                row["format"].upper(),
+                            ),
+                        )
+
+                    file_format = selected["format"].lower()
+                    file_path = f"{selected['path']}/{selected['name']}.{file_format}"
+                    return {
+                        "path": file_path,
+                        "format": selected["format"].upper(),
+                        "available_formats": available_formats,
+                    }
                 return None
         except Exception as e:
             logger.error(f"Error retrieving file path for book {calibre_id}: {e}")
             return None
+
+    @staticmethod
+    def get_book_file_path(calibre_id: int) -> Optional[str]:
+        """Get the file path for the best available book format."""
+        info = CalibreDB.get_book_file_info(calibre_id)
+        return info["path"] if info else None
     
     @staticmethod
     def search_books(query: str) -> List[Dict[str, Any]]:
