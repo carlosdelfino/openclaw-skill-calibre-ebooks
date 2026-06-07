@@ -2,7 +2,6 @@
 [![License: CC BY-SA 4.0](https://img.shields.io/badge/License-CC_BY--SA_4.0-blue.svg)](https://creativecommons.org/licenses/by-sa/4.0/)
 ![Language: Portuguese](https://img.shields.io/badge/Language-Portuguese-brightgreen.svg)
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
-![Node.js](https://img.shields.io/badge/Node.js-20%2B-green)
 ![Status](https://img.shields.io/badge/Status-Desenvolvimento-brightgreen)
 ![Repository Size](https://img.shields.io/github/repo-size/carlosdelfino/openclaw-skill-calibre-ebooks)
 ![Last Commit](https://img.shields.io/github/last-commit/carlosdelfino/openclaw-skill-calibre-ebooks)
@@ -14,27 +13,32 @@
 
 # calibre-ebooks
 
-OpenClaw skill for using the local Calibre-backed Books API.
+OpenClaw skill for managing and querying a local Calibre-backed Books API.
+This skill only works with books already present in the user's Calibre library;
+it does not find, source, or add books from outside the local library. For
+titles that are not in the local library, consult public catalog/store pages
+such as Google Books or Amazon Books for metadata, editions, publisher
+information, and lawful availability.
 
 Primary API documentation:
 
-- Swagger UI: `http://0.0.0.0:6180/docs`
-- ReDoc: `http://0.0.0.0:6180/redoc`
-- OpenAPI JSON: `http://0.0.0.0:6180/openapi.json`
+- Swagger UI: `http://0.0.0.0:6180/docs` (`http://host.docker.internal:6180/`)
+- ReDoc: `http://0.0.0.0:6180/redoc` (`http://host.docker.internal:6180/`)
+- OpenAPI JSON: `http://0.0.0.0:6180/openapi.json` (`http://host.docker.internal:6180/`)
 
-Use the bundled Node.js client:
+Use the bundled Python API client:
 
 ```bash
-node skills/calibre-ebooks/scripts/books-api-client.mjs docs
-node skills/calibre-ebooks/scripts/books-api-client.mjs paths
-node skills/calibre-ebooks/scripts/books-api-client.mjs search "termo" --limit 10
-node skills/calibre-ebooks/scripts/books-api-client.mjs book 123
-node skills/calibre-ebooks/scripts/books-api-client.mjs request GET /books --query q=python
+python3 skills/calibre-ebooks/scripts/books_api_client.py docs
+python3 skills/calibre-ebooks/scripts/books_api_client.py paths
+python3 skills/calibre-ebooks/scripts/books_api_client.py search "termo" --limit 10
+python3 skills/calibre-ebooks/scripts/books_api_client.py book 123
+python3 skills/calibre-ebooks/scripts/books_api_client.py request GET /books --query q=python
 ```
 
-See `SKILL.md` for the full workflow. Local Python scripts are fallback helpers
-for direct Calibre metadata queries and RAG indexing when the API is unavailable
-or does not cover the requested operation.
+See `SKILL.md` for the full workflow. Local Python scripts are helpers for
+direct Calibre metadata queries and RAG indexing when the API is unavailable or
+does not cover the requested local-library operation.
 
 ## Clonando o Projeto
 
@@ -80,7 +84,7 @@ Contribuições são bem-vindas! Para colaborar com a melhoria deste projeto:
 </p>
 
 ---
-**Resumo:** OpenClaw skill para integração com API de livros Calibre local, incluindo cliente Node.js e scripts Python auxiliares.
+**Resumo:** OpenClaw skill para gerenciamento de biblioteca Calibre local, usando API local e scripts Python.
 **Data de Criação:** 2025-05-30
 **Autor:** Rapport GenerAtiva
 **Versão:** 0.0.6
