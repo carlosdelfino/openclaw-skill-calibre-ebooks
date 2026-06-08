@@ -41,6 +41,8 @@ POSTGRESQL_DB_PORT=5432
 OLLAMA_HOST=http://localhost:11434
 OLLAMA_MODEL=nomic-embed-text-v2-moe:latest
 ALLOW_REMOTE_OLLAMA=false
+
+VT_API_KEY=your-virustotal-api-key
 ```
 
 Sensitive options, disabled by default in code:
@@ -65,6 +67,84 @@ Main URLs:
 - Swagger: `http://127.0.0.1:6180/docs`
 - ReDoc: `http://127.0.0.1:6180/redoc`
 - Health: `http://127.0.0.1:6180/health`
+
+## Ebook Upload and Virus Scanning
+
+The server supports uploading ebook files with format validation and optional virus scanning using VirusTotal API.
+
+### Upload Endpoint
+
+**POST** `/api/books/upload`
+
+Upload an ebook file with automatic format validation. The file is checked to ensure it's a valid ebook format before being accepted.
+
+**Query Parameters:**
+
+- `check_virus` (boolean, optional): Enable virus scanning using VirusTotal API. Requires `VT_API_KEY` to be configured. Default: `false`
+
+**Supported Formats:**
+
+PDF, EPUB, MOBI, AZW3, KFX, DJVU, LIT, PDB, TXT, RTF, DOCX, ODT, FB2, HTML, CBZ, CBR
+
+**Example:**
+
+```bash
+curl -X POST "http://127.0.0.1:6180/api/books/upload?check_virus=true" \
+  -H "X-API-Key: $API_KEY" \
+  -F "file=@ebook.pdf"
+```
+
+**Response:**
+
+```json
+{
+  "message": "File uploaded successfully",
+  "filename": "ebook.pdf",
+  "format": "PDF",
+  "size_bytes": 1234567,
+  "path": "/path/to/library/uploads/ebook.pdf",
+  "virus_scan": {
+    "scanned": true,
+    "malicious": false,
+    "detection_ratio": "0/60",
+    "file_hash": "abc123...",
+    "summary": "Detection ratio: 0/60"
+  }
+}
+```
+
+### Virus Scanning on File Retrieval
+
+Existing file retrieval endpoints support optional virus scanning when `VT_API_KEY` is configured:
+
+- **GET** `/api/books/{id}/pdf?check_virus=true`
+- **GET** `/api/books/{id}/file?check_virus=true`
+
+When `check_virus=true` is passed and `VT_API_KEY` is configured, the file is scanned before being returned. If malware is detected, a 403 error is returned with scan details.
+
+**Example:**
+
+```bash
+curl -H "X-API-Key: $API_KEY" \
+  "http://127.0.0.1:6180/api/books/123/pdf?check_virus=true"
+```
+
+### VirusTotal Configuration
+
+To enable virus scanning, set the `VT_API_KEY` in your `.env` file:
+
+```env
+VT_API_KEY=your-virustotal-api-key
+```
+
+Get your API key from [VirusTotal](https://www.virustotal.com/).
+
+**Notes:**
+
+- Virus scanning is optional. If `VT_API_KEY` is not set, virus scanning is disabled and files are accepted without scanning.
+- When `check_virus=true` is requested but `VT_API_KEY` is not configured, the operation proceeds without scanning and a warning is logged.
+- Files are scanned using VirusTotal's file analysis API. The service checks if the file hash already exists in VirusTotal's database to avoid unnecessary uploads.
+- Maximum file size for upload is 100MB.
 
 ## Local Client
 

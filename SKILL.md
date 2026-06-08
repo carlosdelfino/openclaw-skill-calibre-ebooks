@@ -28,8 +28,7 @@ published by the running service.
 
 ## Directory Reference Map
 
-Treat the skill directory as the sandbox for generated files `/workspace/tmp`. Keep temporary book files, covers, exported local files, and derived artifacts inside
-`skills/calibre-ebooks/tmp/` unless a runtime explicitly provides a safer
+Treat the skill directory as the sandbox for generated files `skills/calibre-ebboks/tmp`. Keep temporary book files, covers, exported local files, and derived artifacts inside `skills/calibre-ebooks/tmp/` unless a runtime explicitly provides a safer
 attachment path.
 
 External paths from the sandbox workspace and internal paths inside the sandbox:
@@ -60,7 +59,7 @@ External or mapped paths and services:
   runtimes. It is an internal service address, not a user-facing link.
 - `LOG_DIR` - external server log directory when configured by the server. Do
   not expose it in normal user-facing replies.
-- `/workspace/tmp/...` - operating-system temporary space. Use only for ephemeral local
+- `/skill/calibre-books/tmp/...` - operating-system temporary space. Use only for ephemeral local
   experiments. Prefer `skills/calibre-ebooks/tmp/...` for files that may need to
   be attached, inspected, or cleaned by the skill.
 
@@ -70,13 +69,13 @@ External or mapped paths and services:
 Run commands from the OpenClaw workspace root:
 
 ```bash
-python3 skills/calibre-ebooks/scripts/books_api_client.py --help
+python3 /skills/calibre-ebooks/scripts/books_api_client.py --help
 ```
 
 Or run from inside the skill directory:
 
 ```bash
-cd skills/calibre-ebooks
+cd /skills/calibre-ebooks
 python3 scripts/books_api_client.py --help
 ```
 
@@ -89,14 +88,14 @@ Configuration precedence:
 The client reads `.env` files from these locations, in order, without
 overwriting variables already set in the environment:
 
-- `skills/calibre-ebooks/scripts/.env`
-- `skills/calibre-ebooks/.env`
+- `/skills/calibre-ebooks/scripts/.env`
+- `/skills/calibre-ebooks/.env`
 - current working directory `.env`
 
 Command syntax:
 
 ```bash
-python3 skills/calibre-ebooks/scripts/books_api_client.py [--base URL] COMMAND [ARGS...]
+python3 /skills/calibre-ebooks/scripts/books_api_client.py [--base URL] COMMAND [ARGS...]
 ```
 
 Global option:
@@ -140,72 +139,72 @@ Commands:
 Show documentation URLs:
 
 ```bash
-python3 skills/calibre-ebooks/scripts/books_api_client.py docs
+python3 /skills/calibre-ebooks/scripts/books_api_client.py docs
 ```
 
 Fetch the current OpenAPI specification:
 
 ```bash
-python3 skills/calibre-ebooks/scripts/books_api_client.py openapi
+python3 /skills/calibre-ebooks/scripts/books_api_client.py openapi
 ```
 
 List available API paths with methods and parameters:
 
 ```bash
-python3 skills/calibre-ebooks/scripts/books_api_client.py paths
+python3 /skills/calibre-ebooks/scripts/books_api_client.py paths
 ```
 
 Flexible catalog-first search, with semantic fallback handled by the server:
 
 ```bash
-python3 skills/calibre-ebooks/scripts/books_api_client.py search "termo ou titulo" --limit 10
+python3 /skills/calibre-ebooks/scripts/books_api_client.py search "termo ou titulo" --limit 10
 ```
 
 Search embedded/RAG content through the Books API:
 
 ```bash
-python3 skills/calibre-ebooks/scripts/books_api_client.py semantic "pergunta ou tema" --limit 10 --threshold 0.3
+python3 /skills/calibre-ebooks/scripts/books_api_client.py semantic "pergunta ou tema" --limit 10 --threshold 0.3
 ```
 
 Get book details by ID using endpoint discovery from OpenAPI:
 
 ```bash
-python3 skills/calibre-ebooks/scripts/books_api_client.py book 123
+python3 /skills/calibre-ebooks/scripts/books_api_client.py book 123
 ```
 
 Save a book cover image when the API exposes the cover endpoint:
 
 ```bash
-python3 skills/calibre-ebooks/scripts/books_api_client.py request GET /api/books/123/cover --output-dir /workspace/tmp/calibre-covers
+python3 /skills/calibre-ebooks/scripts/books_api_client.py request GET /api/books/123/cover --output-dir /workspace/tmp/calibre-covers
 ```
 external folder: `skills/calibre-ebooks/tmp/calibre-covers`
 
 Get library and RAG summary statistics:
 
 ```bash
-python3 skills/calibre-ebooks/scripts/books_api_client.py request GET /api/stats/library
+python3 /skills/calibre-ebooks/scripts/books_api_client.py request GET /api/stats/library
 ```
 
 Select a random book from the API catalog when the OpenAPI spec exposes a
 pagination/list endpoint:
 
 ```bash
-python3 skills/calibre-ebooks/scripts/books_api_client.py request GET /api/books --query limit=1000
+python3 /skills/calibre-ebooks/scripts/books_api_client.py request GET /api/books --query limit=1000
 ```
 
 Call an explicit endpoint after inspecting OpenAPI:
 
 ```bash
-python3 skills/calibre-ebooks/scripts/books_api_client.py request GET /books --query q=python --query limit=10
-python3 skills/calibre-ebooks/scripts/books_api_client.py request GET /books/123
-python3 skills/calibre-ebooks/scripts/books_api_client.py request POST /search --body '{"query":"python","limit":10}'
+python3 /skills/calibre-ebooks/scripts/books_api_client.py request GET /books --query q=python --query limit=10
+python3 /skills/calibre-ebooks/scripts/books_api_client.py request GET /books/123
+python3 /skills/calibre-ebooks/scripts/books_api_client.py request POST /search --body '{"query":"python","limit":10}'
 ```
 
 Save a file response when the API exposes a local file-access endpoint:
 
 ```bash
-python3 skills/calibre-ebooks/scripts/books_api_client.py request GET /api/books/123/file --output-dir skills/calibre-ebooks/tmp/downloads
-python3 skills/calibre-ebooks/scripts/books_api_client.py request GET /books/123/download --query format=EPUB --output-dir /workspace/tmp/downloads
+python3 /skills/calibre-ebooks/scripts/books_api_client.py request GET /api/books/123/file --output-dir /skills/calibre-ebooks/tmp/downloads
+python3 /skills/calibre-ebooks/scripts/books_api_client.py request GET /books/123/download --query format=EPUB --output-dir /skills/calibre-ebooks/tmp/downloads
 ```
 
 external folder `skills/calibre-ebooks/tmp/downloads`
@@ -216,7 +215,7 @@ header. Use `/api/books/{id}/pdf` only when the user explicitly needs PDF or the
 OpenAPI metadata confirms that PDF is available.
 
 For local file exports meant to be sent as attachments to an authorized user,
-save them in `/workspace/tmp/downloads`; externally this maps to
+save them in `/skills/calibre-ebooks/tmp/downloads`; externally this maps to
 `skills/calibre-ebooks/tmp/downloads/`. Use `--output-dir` so the API-provided
 complete filename is preserved. After the attachment is sent and the runtime has
 confirmed the upload/read, delete the temporary copy to avoid accumulating book
@@ -246,7 +245,7 @@ the Books API returns `calibre_metadata_db_unavailable`, diagnose the configured
 `CALIBRE_DB_PATH` through:
 
 ```bash
-python3 skills/calibre-ebooks/scripts/books_api_client.py request GET /api/books/calibre-db/status
+python3 /skills/calibre-ebooks/scripts/books_api_client.py request GET /api/books/calibre-db/status
 ```
 
 The diagnostic response includes:
@@ -420,7 +419,7 @@ categories, RAG chunks/excerpts, embedding model, chunk size, or
 overlap, call:
 
 ```bash
-python3 skills/calibre-ebooks/scripts/books_api_client.py request GET /api/stats/library
+python3 /skills/calibre-ebooks/scripts/books_api_client.py request GET /api/stats/library
 ```
 
 Trigger this workflow for questions like:
@@ -470,7 +469,7 @@ Workflow:
 
 1. Find or confirm the book id through the Books API.
 2. Save the cover image inside this skill's temporary workspace:
-   `/workspace/tmp/calibre-covers/`; externally this maps to
+   `/skills/calibre-ebooks/tmp/calibre-covers/`; externally this maps to
    `skills/calibre-ebooks/tmp/calibre-covers/`
 3. Use `--output-dir` so the API filename is used, or a deterministic filename
    such as `book-123-cover.jpg` when an explicit path is required.
@@ -481,7 +480,7 @@ Workflow:
 6. If the cover endpoint returns 404 or no image is available, say that the
    cover is not available for that book and continue with metadata if useful.
 7. After the image attachment is sent and confirmed by the runtime, delete the
-   temporary cover file from `/workspace/tmp/calibre-covers/`.
+   temporary cover file from `/skills/calibre-ebooks/tmp/calibre-covers/`.
 
 ## Title Search Fallback
 
@@ -489,7 +488,7 @@ When the user asks for a specific book by title, do not stop after a failed
 catalog/title search.
 
 1. Search the Books API for the title or quoted phrase:
-   `python3 skills/calibre-ebooks/scripts/books_api_client.py search "provided title" --limit 10`
+   `python3 /skills/calibre-ebooks/scripts/books_api_client.py search "provided title" --limit 10`
 2. The Books API search endpoint handles catalog-first lookup and semantic
    fallback. Inspect returned `result_type`: `catalog` means confirmed local
    book metadata, while `semantic` means a RAG/content match and should be
@@ -497,7 +496,7 @@ catalog/title search.
    confirms it.
 3. Use the local RAG script only if the API semantic endpoint is unavailable or
    the task explicitly requires local RAG maintenance:
-   `python3 skills/calibre-ebooks/calibre-openclaw-server/scripts/document_semantic_rag.py --search "provided title" --json`
+   `python3 /skills/calibre-ebooks/calibre-openclaw-server/scripts/document_semantic_rag.py --search "provided title" --json`
 4. Use RAG results to identify likely related books by document/book id, page,
    similarity, and excerpt. Present them as probable semantic matches, not exact
    title matches, unless metadata confirms the title.
@@ -565,7 +564,7 @@ Workflow:
 The import queue lives in the Rapport Bibliotecario agent workspace:
 
 ```text
-/home/carlosdelfino/workspace/openclaw-workspace/agents/rapport-bibliotecario/memory/calibre-import-queue/
+agents/rapport-bibliotecario/memory/calibre-import-queue/
 ```
 
 ## Random Book Suggestions
@@ -619,7 +618,7 @@ Preferred API workflow:
 1. Run `books_api_client.py paths` or `openapi` unless the list endpoint is
    already known in this session.
 2. Fetch a broad page from the list endpoint, for example:
-   `python3 skills/calibre-ebooks/scripts/books_api_client.py request GET /api/books --query limit=1000`
+   `python3 /skills/calibre-ebooks/scripts/books_api_client.py request GET /api/books --query limit=1000`
 3. Randomly choose exactly one item from the returned `books` array.
 4. Return a useful reader-facing recommendation with title, authors,
    publisher, publication year, formats, id, synopsis/description, key
@@ -631,7 +630,7 @@ If the API is unreachable or does not expose enough catalog items, use the
 read-only local fallback:
 
 ```bash
-python3 skills/calibre-ebooks/calibre-openclaw-server/scripts/calibre_query.py --db "$CALIBRE_METADATA_DB" random
+python3 /skills/calibre-ebooks/calibre-openclaw-server/scripts/calibre_query.py --db "$CALIBRE_METADATA_DB" random
 ```
 
 Do not repeatedly return the first item from a list. The selection must be

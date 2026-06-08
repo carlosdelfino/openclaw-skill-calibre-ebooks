@@ -131,6 +131,7 @@ async def lifespan(app: FastAPI):
     print(f"  - GET  /api/books/{{id}}/file    - Get selected available book file")
     print(f"  - GET  /api/books/{{id}}/pdf     - Get complete PDF")
     print(f"  - GET  /api/books/{{id}}/markdown - Get book as Markdown")
+    print(f"  - POST /api/books/upload         - Upload ebook file with validation")
     print(f"  - GET  /api/search              - Search by metadata")
     print(f"  - POST /api/search/content      - Semantic content search")
     print(f"  - GET  /api/embeddings/status/{{id}} - Check embedding status")

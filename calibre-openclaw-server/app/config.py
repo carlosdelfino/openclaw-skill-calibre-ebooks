@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     LOG_RETENTION_DAYS: int = Field(default=30)
     LOG_COMPRESS: bool = Field(default=True)
     
+    # VirusTotal
+    VT_API_KEY: Optional[SecretStr] = Field(default=None)
+    
     @property
     def postgres_dsn(self) -> str:
         user = quote(self.POSTGRESQL_DB_USER, safe="")

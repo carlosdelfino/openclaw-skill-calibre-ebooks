@@ -1,12 +1,15 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, UploadFile, File
 from fastapi.responses import Response, StreamingResponse, JSONResponse
 from typing import Optional
+from pathlib import Path
 
 from app.models import BookResponse, BookListResponse, SyncResponse
 from app.services.book_service import book_service
+from app.services.virus_service import virus_service
 from app.utils.logger import get_logger
 from app.config import settings
 from app.database.calibre_db import CalibreMetadataDBUnavailable, diagnose_calibre_db
+from app.utils.ebook_validator import is_ebook_bytes, validate_bytes_size, get_supported_formats
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/books", tags=["books"])
@@ -225,13 +228,36 @@ async def get_book_cover(book_id: int):
 
 
 @router.get("/{book_id}/pdf")
-async def get_book_pdf(book_id: int):
+async def get_book_pdf(
+    book_id: int,
+    check_virus: bool = Query(default=False, description="Enable virus scanning using VirusTotal API")
+):
     """Get the complete PDF file for a book when PDF is the selected format."""
     try:
         require_content_downloads_enabled()
         pdf_data = book_service.get_book_pdf(book_id)
         if not pdf_data:
             raise HTTPException(status_code=404, detail="PDF not found")
+        
+        # Virus scan if requested and enabled
+        if check_virus and virus_service.is_enabled():
+            logger.info(f"Starting virus scan for PDF of book {book_id}")
+            virus_result = await virus_service.scan_bytes(pdf_data, f"book_{book_id}.pdf")
+            
+            if virus_result.get("malicious"):
+                logger.warning(f"PDF for book {book_id} detected as malicious: {virus_result}")
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "error": "malicious_file_detected",
+                        "message": "File contains malware and was blocked",
+                        "virus_scan": virus_result
+                    }
+                )
+            
+            logger.info(f"Virus scan completed for PDF of book {book_id}: {virus_result.get('summary', 'No threats detected')}")
+        elif check_virus and not virus_service.is_enabled():
+            logger.warning(f"Virus scan requested for book {book_id} PDF but VT_API_KEY not configured")
         
         return Response(
             content=pdf_data,
@@ -246,13 +272,36 @@ async def get_book_pdf(book_id: int):
 
 
 @router.get("/{book_id}/file")
-async def get_book_file(book_id: int):
+async def get_book_file(
+    book_id: int,
+    check_virus: bool = Query(default=False, description="Enable virus scanning using VirusTotal API")
+):
     """Get the book file in the selected available Calibre format."""
     try:
         require_content_downloads_enabled()
         file_info = book_service.get_book_file(book_id)
         if not file_info:
             raise HTTPException(status_code=404, detail="Book file not found")
+
+        # Virus scan if requested and enabled
+        if check_virus and virus_service.is_enabled():
+            logger.info(f"Starting virus scan for file of book {book_id}")
+            virus_result = await virus_service.scan_bytes(file_info["data"], file_info["filename"])
+            
+            if virus_result.get("malicious"):
+                logger.warning(f"File for book {book_id} detected as malicious: {virus_result}")
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "error": "malicious_file_detected",
+                        "message": "File contains malware and was blocked",
+                        "virus_scan": virus_result
+                    }
+                )
+            
+            logger.info(f"Virus scan completed for file of book {book_id}: {virus_result.get('summary', 'No threats detected')}")
+        elif check_virus and not virus_service.is_enabled():
+            logger.warning(f"Virus scan requested for book {book_id} file but VT_API_KEY not configured")
 
         return Response(
             content=file_info["data"],
@@ -335,4 +384,106 @@ async def get_book_page_markdown(book_id: int, page_num: int):
         raise
     except Exception as e:
         logger.error(f"Error getting markdown for page {page_num} of book {book_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/upload")
+async def upload_ebook(
+    file: UploadFile = File(..., description="Ebook file to upload"),
+    check_virus: bool = Query(default=False, description="Enable virus scanning using VirusTotal API")
+):
+    """
+    Upload an ebook file with format validation and optional virus scanning.
+    
+    The file is validated to ensure it's a valid ebook format. If VT_API_KEY is configured
+    and check_virus=true, the file will be scanned for malware before being accepted.
+    
+    Supported formats: PDF, EPUB, MOBI, AZW3, KFX, DJVU, LIT, PDB, TXT, RTF, DOCX, ODT, FB2, HTML, CBZ, CBR
+    """
+    try:
+        logger.info(f"Received file upload request: {file.filename}, check_virus={check_virus}")
+        
+        # Read file content
+        file_data = await file.read()
+        
+        # Validate file size (max 100MB)
+        size_valid, size_error = validate_bytes_size(file_data, file.filename)
+        if not size_valid:
+            raise HTTPException(status_code=413, detail=size_error)
+        
+        # Validate ebook format
+        is_valid, format_name = is_ebook_bytes(file_data, file.filename)
+        if not is_valid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid ebook format. Supported formats: {', '.join(get_supported_formats())}"
+            )
+        
+        logger.info(f"File {file.filename} validated as {format_name}")
+        
+        # Virus scan if enabled and requested
+        virus_result = None
+        if check_virus and virus_service.is_enabled():
+            logger.info(f"Starting virus scan for {file.filename}")
+            virus_result = await virus_service.scan_bytes(file_data, file.filename)
+            
+            if virus_result.get("malicious"):
+                logger.warning(f"File {file.filename} detected as malicious: {virus_result}")
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "error": "malicious_file_detected",
+                        "message": "File contains malware and was rejected",
+                        "virus_scan": virus_result
+                    }
+                )
+            
+            logger.info(f"Virus scan completed for {file.filename}: {virus_result.get('summary', 'No threats detected')}")
+        elif check_virus and not virus_service.is_enabled():
+            logger.warning(f"Virus scan requested but VT_API_KEY not configured")
+            virus_result = {
+                "scanned": False,
+                "reason": "VirusTotal API not configured (VT_API_KEY not set)"
+            }
+        
+        # Save file to library
+        library_path = Path(settings.CALIBRE_LIBRARY_PATH)
+        upload_dir = library_path / "uploads"
+        upload_dir.mkdir(exist_ok=True)
+        
+        # Generate safe filename
+        safe_filename = Path(file.filename).name
+        file_path = upload_dir / safe_filename
+        
+        # Avoid overwriting existing files
+        counter = 1
+        while file_path.exists():
+            stem = Path(file.filename).stem
+            suffix = Path(file.filename).suffix
+            safe_filename = f"{stem}_{counter}{suffix}"
+            file_path = upload_dir / safe_filename
+            counter += 1
+        
+        # Write file
+        with open(file_path, "wb") as f:
+            f.write(file_data)
+        
+        logger.info(f"File saved to: {file_path}")
+        
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": "File uploaded successfully",
+                "filename": safe_filename,
+                "format": format_name,
+                "size_bytes": len(file_data),
+                "path": str(file_path),
+                "virus_scan": virus_result
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading file {file.filename}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")

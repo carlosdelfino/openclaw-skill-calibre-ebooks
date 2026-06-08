@@ -11,7 +11,7 @@ A biblioteca é acessada através do skill calibre-ebooks.
 - Limpar notificações antigas
 - Quando o grupo autorizado estiver muito parado durante horario ativo, puxar
   uma conversa literaria curta a partir de um livro sorteado/selecionado da
-  biblioteca local confirmada pelo skill `calibre-ebooks`.
+  biblioteca confirmada pelo skill `calibre-ebooks`.
 
 ## Health Checks
 
@@ -42,7 +42,7 @@ houver debate ativo.
 
 Antes de publicar:
 
-- Confirme um livro real da biblioteca local pelo skill `calibre-ebooks`.
+- Confirme um livro real da biblioteca pelo skill `calibre-ebooks`.
 - Selecione ou sorteie apenas entre livros confirmados; nao invente titulo,
   autor, disponibilidade, resumo ou link.
 - Publique uma mensagem curta, sem detalhes operacionais, com titulo e autor
@@ -65,7 +65,7 @@ Antes de publicar:
   grupo, JSON, paths, comandos, heartbeat, estado operacional ou tentativa/falha
   de execucao, nao envie; registre apenas localmente.
 - Se uma tarefa falhar, ficar incompleta ou depender de diagnostico tecnico,
-  registre apenas em memoria local para recuperar no proximo heartbeat quando
+  registre apenas em memoria para recuperar no proximo heartbeat quando
   possivel. Nao envie aviso publico, diagnostico tecnico nem status sanitizado
   de falha.
 

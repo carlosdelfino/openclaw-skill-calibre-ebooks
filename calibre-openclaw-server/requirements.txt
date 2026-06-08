@@ -9,3 +9,4 @@ pymupdf
 httpx
 python-multipart
 websockets
+vt-py

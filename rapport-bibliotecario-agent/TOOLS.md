@@ -30,7 +30,7 @@ Workflow:
 Comandos, JSON, OpenAPI, endpoints, paths, parametros, codigos de saida, URLs
 internas e diagnosticos sao insumos internos. Em canal publico, responda apenas
 com o resultado util. Se heartbeat ou consulta falhar, registre detalhes apenas
-em memoria local para recuperacao posterior; nao publique status de falha.
+em memoria para recuperacao posterior; nao publique status de falha.
 
 ## Cliente do Skill
 
@@ -84,10 +84,10 @@ Use apenas quando `calibre-ebooks` orientar, quando o fluxo principal estiver
 indisponivel ou quando a tarefa exigir arquivo local/RAG.
 
 ```bash
-python3 skills/calibre-ebooks/scripts/calibre_query.py list --limit 20
-python3 skills/calibre-ebooks/scripts/calibre_query.py search "termo" --limit 10
-python3 skills/calibre-ebooks/scripts/calibre_query.py metadata 123
-python3 skills/calibre-ebooks/scripts/calibre_query.py path 123
+python3 /skills/calibre-ebooks/scripts/calibre_query.py list --limit 20
+python3 /skills/calibre-ebooks/scripts/calibre_query.py search "termo" --limit 10
+python3 /skills/calibre-ebooks/scripts/calibre_query.py metadata 123
+python3 /skills/calibre-ebooks/scripts/calibre_query.py path 123
 ```
 
 Uso:
@@ -96,47 +96,6 @@ Uso:
 - `search`: localizar candidatos.
 - `metadata`: confirmar titulo, autores, tags, formatos e observacoes.
 - `path`: resolver arquivos reais para analise ou entrega.
-
-## RAG Local do `calibre-ebooks`
-
-Para pedidos comuns de descoberta de livros, use primeiro `search`; ele ja faz
-catalogo e fallback semantico no servidor. Use a busca semantica pura do Books
-API quando o objetivo for procurar conteudo ja indexado:
-
-```bash
-python3 skills/calibre-ebooks/scripts/books_api_client.py semantic "consulta" --limit 10 --threshold 0.3
-```
-
-Use o script local abaixo para manutencao/indexacao local, diagnostico de RAG ou
-quando o endpoint semantico da API estiver indisponivel.
-
-```bash
-python3 skills/calibre-ebooks/scripts/document_semantic_rag.py --check --json
-python3 skills/calibre-ebooks/scripts/document_semantic_rag.py --status --json
-python3 skills/calibre-ebooks/scripts/document_semantic_rag.py --list --json
-python3 skills/calibre-ebooks/scripts/document_semantic_rag.py --calibre-id 123 --json
-python3 skills/calibre-ebooks/scripts/document_semantic_rag.py --convert "/path/livro.pdf" --json
-python3 skills/calibre-ebooks/scripts/document_semantic_rag.py --search "consulta" --json
-python3 skills/calibre-ebooks/scripts/document_semantic_rag.py --delete RAG_BOOK_ID --json
-```
-
-Uso:
-
-- `--check`: dependencias, binarios e acesso local.
-- `--status`: base, modelo, livros indexados e chunks.
-- `--list`: itens indexados.
-- `--calibre-id`: indexa livro confirmado por ID do Calibre.
-- `--convert`: indexa arquivo confirmado.
-- `--search`: busca hibrida texto + embeddings.
-- `--delete`: remove item RAG somente com pedido explicito do usuario.
-
-Defaults do RAG local:
-
-- SQLite/chunks: `/tmp/openclaw-calibre-rag/data/documents.db`
-- ChromaDB: `/tmp/openclaw-calibre-rag/data/chroma_db`
-- Markdown convertido: `/tmp/openclaw-calibre-rag/converteds`
-- Modelo padrao: `nomic-embed-text-v2-moe:latest` via Ollama, salvo ajuste do
-  skill.
 
 ## Fluxo RAG Recomendado
 
@@ -151,7 +110,7 @@ Defaults do RAG local:
 
 ## Livros Ausentes
 
-Depois de busca local sem confirmacao:
+Depois de busca  sem confirmacao:
 
 - Registrar em `memory/calibre-missing-books.md`.
 - Consultar Google Books preferencialmente.
@@ -163,6 +122,6 @@ Modelo interno de registro:
 ```text
 YYYY-MM-DD - Pedido: "..."
 Variacoes buscadas: ...
-Resultado local: nao encontrado
+Resultado: nao encontrado
 Link externo confirmado: ...
 ```
