@@ -2,6 +2,7 @@
 name: calibre-ebooks
 description: Manage and query the local Calibre library through the Books API, using local Calibre/RAG helpers only when file resolution or semantic indexing is explicitly needed.
 metadata: '{"openclaw":{"requires":{"bins":["python3"]}}}'
+homepage: https://github.com/carlosdelfino/openclaw-skill-calibre-ebooks
 ---
 # Calibre E-books
 
