@@ -144,7 +144,7 @@ async def sync_status():
 
 @router.get("/problems")
 async def list_problem_books():
-    """List books with problems (missing files, etc.)."""
+    """List books with problems (missing files, RAG processing errors, etc.)."""
     try:
         from app.database.calibre_db import CalibreDB
         from app.database.postgres_db import postgres_db
@@ -173,6 +173,13 @@ async def list_problem_books():
             if book_id and not postgres_db.has_embeddings(book_id):
                 problems.append("No embeddings")
             
+            # Check for RAG processing errors
+            if book_id:
+                queue_status = postgres_db.get_queue_status(book_id)
+                if queue_status and queue_status.get('status') == 'failed':
+                    error_msg = queue_status.get('error_message', 'RAG processing failed')
+                    problems.append(f"RAG error: {error_msg}")
+            
             if problems:
                 problem_books.append({
                     "id": book.get('id'),
@@ -189,6 +196,44 @@ async def list_problem_books():
         }
     except Exception as e:
         logger.error(f"Error listing problem books: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/recent")
+async def list_recent_books(limit: int = Query(default=10, ge=1, le=50)):
+    """List recently added or RAG-processed books."""
+    try:
+        from app.database.postgres_db import postgres_db
+        from psycopg2.extras import RealDictCursor
+        
+        # Get recently added books (by indexed_at)
+        with postgres_db.get_connection() as conn:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor.execute("""
+                SELECT b.*, 
+                       pq.status as queue_status,
+                       pq.error_message as queue_error,
+                       pq.completed_at as rag_completed_at
+                FROM books b
+                LEFT JOIN processing_queue pq ON b.id = pq.book_id 
+                    AND pq.id = (
+                        SELECT MAX(id) FROM processing_queue 
+                        WHERE book_id = b.id
+                    )
+                ORDER BY b.indexed_at DESC, pq.completed_at DESC NULLS LAST
+                LIMIT %s
+            """, (limit,))
+            books = cursor.fetchall()
+        
+        # Enrich with metadata and RAG status
+        enriched_books = [postgres_db._enrich_book_with_metadata(book) for book in books]
+        
+        return {
+            "total": len(enriched_books),
+            "books": enriched_books
+        }
+    except Exception as e:
+        logger.error(f"Error listing recent books: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

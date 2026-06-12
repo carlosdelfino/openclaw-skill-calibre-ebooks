@@ -306,6 +306,74 @@
             color: #2196f3;
         }
 
+        .book-item {
+            position: relative;
+        }
+
+        .book-tooltip {
+            position: fixed;
+            background: rgba(50, 50, 50, 0.98);
+            color: white;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 0.85em;
+            z-index: 10000;
+            display: none;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+            pointer-events: none;
+            min-width: 200px;
+            max-width: 320px;
+            backdrop-filter: blur(10px);
+        }
+
+        .book-tooltip.visible {
+            display: block;
+        }
+
+        .book-tooltip-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 4px;
+        }
+
+        .book-tooltip-label {
+            color: #aaa;
+            margin-right: 10px;
+        }
+
+        .book-tooltip-value {
+            color: #fff;
+            font-weight: 500;
+        }
+
+        .rag-status-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.75em;
+            font-weight: bold;
+        }
+
+        .rag-status-badge.processed {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .rag-status-badge.in-queue {
+            background: #ff9800;
+            color: white;
+        }
+
+        .rag-status-badge.failed {
+            background: #f44336;
+            color: white;
+        }
+
+        .rag-status-badge.pending {
+            background: #9e9e9e;
+            color: white;
+        }
+
         .metric-grid {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
@@ -516,6 +584,123 @@
             word-break: break-word;
         }
 
+        .result-checkbox {
+            margin-right: 12px;
+            transform: scale(1.2);
+            cursor: pointer;
+        }
+
+        .result-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+            align-items: center;
+        }
+
+        .process-button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            font-size: 0.95em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s ease, opacity 0.2s ease;
+        }
+
+        .process-button:hover {
+            transform: scale(1.03);
+        }
+
+        .process-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .process-button.processing {
+            background: linear-gradient(135deg, #ffa726 0%, #fb8c00 100%);
+        }
+
+        .priority-queue-section {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            border-left: 4px solid #ff9800;
+        }
+
+        .priority-queue-title {
+            font-weight: bold;
+            color: #ff9800;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .priority-queue-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            background: #fff;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            border: 1px solid #e0e0e0;
+        }
+
+        .priority-queue-item.processing {
+            border-left: 4px solid #2196f3;
+        }
+
+        .priority-queue-item.completed {
+            border-left: 4px solid #4CAF50;
+            opacity: 0.7;
+        }
+
+        .priority-queue-item.failed {
+            border-left: 4px solid #f44336;
+        }
+
+        .priority-queue-info {
+            flex: 1;
+        }
+
+        .priority-queue-book-title {
+            font-weight: 600;
+            color: #333;
+            font-size: 0.9em;
+        }
+
+        .priority-queue-status {
+            font-size: 0.8em;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-weight: bold;
+        }
+
+        .priority-queue-status.pending {
+            background: #fff3e0;
+            color: #ff9800;
+        }
+
+        .priority-queue-status.processing {
+            background: #e3f2fd;
+            color: #2196f3;
+        }
+
+        .priority-queue-status.completed {
+            background: #e8f5e9;
+            color: #4CAF50;
+        }
+
+        .priority-queue-status.failed {
+            background: #ffebee;
+            color: #f44336;
+        }
+
         @media (max-width: 768px) {
             .header h1 {
                 font-size: 1.8em;
@@ -558,6 +743,10 @@
                 </form>
                 <div class="search-status" id="catalogSearchStatus"></div>
                 <div class="search-results" id="catalogSearchResults"></div>
+                <div class="result-actions" id="catalogResultActions" style="display: none;">
+                    <button type="button" class="process-button" id="processCatalogButton">Process Selected Books (RAG)</button>
+                    <span id="catalogSelectedCount" style="color: #666; font-size: 0.9em;">0 selected</span>
+                </div>
             </div>
 
             <div class="card full-width">
@@ -579,6 +768,10 @@
                 </form>
                 <div class="search-status" id="ragSearchStatus"></div>
                 <div class="search-results" id="ragSearchResults"></div>
+                <div class="result-actions" id="ragResultActions" style="display: none;">
+                    <button type="button" class="process-button" id="processRagButton">Process Selected Books (RAG)</button>
+                    <span id="ragSelectedCount" style="color: #666; font-size: 0.9em;">0 selected</span>
+                </div>
             </div>
 
             <div class="card">
@@ -642,6 +835,18 @@
                 <div class="queue-item">
                     <span>Failed</span>
                     <span class="queue-status failed" id="failedQueue">0</span>
+                </div>
+            </div>
+
+            <div class="card full-width">
+                <div class="card-title">Priority Processing Queue</div>
+                <div class="priority-queue-section">
+                    <div class="priority-queue-title">
+                        <span>🚀 Immediate Processing</span>
+                    </div>
+                    <div id="priorityQueueList">
+                        <div style="color: #666; font-size: 0.9em;">No books in priority queue</div>
+                    </div>
                 </div>
             </div>
 
@@ -727,7 +932,52 @@
         let ws;
         let embeddingChart;
         let systemChart;
-        let dashboardApiKey = '';
+        let selectedCatalogBooks = new Set();
+        let selectedRagBooks = new Set();
+        let activeTooltip = null;
+        let tooltipElement = null;
+
+        function createTooltip() {
+            if (!tooltipElement) {
+                tooltipElement = document.createElement('div');
+                tooltipElement.className = 'book-tooltip';
+                document.body.appendChild(tooltipElement);
+            }
+            return tooltipElement;
+        }
+
+        function showTooltip(content, x, y) {
+            const tooltip = createTooltip();
+            tooltip.innerHTML = content;
+            tooltip.classList.add('visible');
+            
+            // Position tooltip near cursor but ensure it stays in viewport
+            const tooltipRect = tooltip.getBoundingClientRect();
+            const viewportWidth = window.innerWidth;
+            const viewportHeight = window.innerHeight;
+            
+            let posX = x + 15;
+            let posY = y + 15;
+            
+            // Adjust if tooltip would overflow right edge
+            if (posX + tooltipRect.width > viewportWidth - 20) {
+                posX = x - tooltipRect.width - 15;
+            }
+            
+            // Adjust if tooltip would overflow bottom edge
+            if (posY + tooltipRect.height > viewportHeight - 20) {
+                posY = y - tooltipRect.height - 15;
+            }
+            
+            tooltip.style.left = `${posX}px`;
+            tooltip.style.top = `${posY}px`;
+        }
+
+        function hideTooltip() {
+            if (tooltipElement) {
+                tooltipElement.classList.remove('visible');
+            }
+        }
 
         function createDoughnutChart(canvas, labels, colors) {
             const ctx = canvas.getContext('2d');
@@ -930,7 +1180,7 @@
 
         async function loadRecentBooks() {
             try {
-                const response = await fetch('/api/books?limit=10', authFetchOptions());
+                const response = await fetch('/api/books/recent?limit=10');
                 const data = await response.json();
                 
                 const booksList = document.getElementById('recentBooks');
@@ -941,32 +1191,80 @@
                         const bookItem = document.createElement('div');
                         bookItem.className = 'book-item';
                         
-                        const hasEmbeddings = book.has_embeddings || false;
-                        const statusClass = hasEmbeddings ? 'has-embeddings' : 'no-embeddings';
-                        const statusText = hasEmbeddings ? 'With Embeddings' : 'Without Embeddings';
+                        // RAG status badge
+                        let ragStatusBadge = '';
+                        if (book.rag_processed) {
+                            ragStatusBadge = '<span class="rag-status-badge processed">RAG Processed</span>';
+                        } else if (book.rag_in_queue) {
+                            ragStatusBadge = '<span class="rag-status-badge in-queue">In Queue</span>';
+                        } else if (book.rag_status === 'failed') {
+                            ragStatusBadge = '<span class="rag-status-badge failed">Failed</span>';
+                        } else {
+                            ragStatusBadge = '<span class="rag-status-badge pending">Not Processed</span>';
+                        }
+                        
+                        // Build tooltip content
+                        const tooltipContent = `
+                            <div class="book-tooltip-row">
+                                <span class="book-tooltip-label">Author:</span>
+                                <span class="book-tooltip-value">${escapeHtml(book.author || 'Unknown')}</span>
+                            </div>
+                            <div class="book-tooltip-row">
+                                <span class="book-tooltip-label">Publisher:</span>
+                                <span class="book-tooltip-value">${escapeHtml(book.publisher || 'N/A')}</span>
+                            </div>
+                            <div class="book-tooltip-row">
+                                <span class="book-tooltip-label">Year:</span>
+                                <span class="book-tooltip-value">${book.year || 'N/A'}</span>
+                            </div>
+                            <div class="book-tooltip-row">
+                                <span class="book-tooltip-label">ISBN:</span>
+                                <span class="book-tooltip-value">${escapeHtml(book.isbn || 'N/A')}</span>
+                            </div>
+                            <div class="book-tooltip-row">
+                                <span class="book-tooltip-label">Pages:</span>
+                                <span class="book-tooltip-value">${book.page_count || 'N/A'}</span>
+                            </div>
+                            <div class="book-tooltip-row">
+                                <span class="book-tooltip-label">RAG Status:</span>
+                                <span class="book-tooltip-value">${ragStatusBadge}</span>
+                            </div>
+                            ${book.rag_error ? `<div class="book-tooltip-row"><span class="book-tooltip-label">Error:</span><span class="book-tooltip-value" style="color: #ff6b6b;">${escapeHtml(book.rag_error)}</span></div>` : ''}
+                        `;
                         
                         bookItem.innerHTML = `
                             <div class="book-info">
-                                <div class="book-title">${book.title || 'Untitled'}</div>
-                                <div class="book-author">${book.author || 'Unknown author'}</div>
+                                <div class="book-title">${escapeHtml(book.title || 'Untitled')}</div>
+                                <div class="book-author">${escapeHtml(book.author || 'Unknown author')}</div>
                             </div>
-                            <div class="book-status ${statusClass}">${statusText}</div>
+                            <div>${ragStatusBadge}</div>
                         `;
+                        
+                        // Add mouse events for tooltip
+                        bookItem.addEventListener('mouseenter', (e) => {
+                            showTooltip(tooltipContent, e.clientX, e.clientY);
+                        });
+                        bookItem.addEventListener('mousemove', (e) => {
+                            showTooltip(tooltipContent, e.clientX, e.clientY);
+                        });
+                        bookItem.addEventListener('mouseleave', () => {
+                            hideTooltip();
+                        });
                         
                         booksList.appendChild(bookItem);
                     });
                 } else {
-                    booksList.innerHTML = '<div class="book-item"><div class="book-info"><div class="book-title">No books found</div></div></div>';
+                    booksList.innerHTML = '<div class="book-item"><div class="book-info"><div class="book-title">No recent books found</div></div></div>';
                 }
             } catch (error) {
                 console.error('Error loading recent books:', error);
-                document.getElementById('recentBooks').innerHTML = '<div class="book-item"><div class="book-info"><div class="book-title">Error loading books</div></div></div>';
+                document.getElementById('recentBooks').innerHTML = '<div class="book-item"><div class="book-info"><div class="book-title">Error loading recent books</div></div></div>';
             }
         }
 
         async function loadProblemBooks() {
             try {
-                const response = await fetch('/api/books/problems', authFetchOptions());
+                const response = await fetch('/api/books/problems');
                 const data = await response.json();
                 
                 const problemBooksList = document.getElementById('problemBooks');
@@ -982,16 +1280,40 @@
                             if (problem === 'File not found') tagClass = 'file-not-found';
                             else if (problem === 'No embeddings') tagClass = 'no-embeddings';
                             else if (problem === 'No file path') tagClass = 'no-file-path';
-                            return `<span class="problem-tag ${tagClass}">${problem}</span>`;
+                            else if (problem.startsWith('RAG error')) tagClass = 'failed';
+                            return `<span class="problem-tag ${tagClass}">${escapeHtml(problem)}</span>`;
                         }).join('');
+                        
+                        // Build tooltip content
+                        const tooltipContent = `
+                            <div class="book-tooltip-row">
+                                <span class="book-tooltip-label">Author:</span>
+                                <span class="book-tooltip-value">${escapeHtml(book.author || 'Unknown')}</span>
+                            </div>
+                            <div class="book-tooltip-row">
+                                <span class="book-tooltip-label">Problems:</span>
+                                <span class="book-tooltip-value">${problemTags}</span>
+                            </div>
+                        `;
                         
                         bookItem.innerHTML = `
                             <div class="book-info">
-                                <div class="book-title">${book.title || 'Untitled'}</div>
-                                <div class="book-author">${book.author || 'Unknown author'}</div>
+                                <div class="book-title">${escapeHtml(book.title || 'Untitled')}</div>
+                                <div class="book-author">${escapeHtml(book.author || 'Unknown author')}</div>
                                 <div style="margin-top: 5px;">${problemTags}</div>
                             </div>
                         `;
+                        
+                        // Add mouse events for tooltip
+                        bookItem.addEventListener('mouseenter', (e) => {
+                            showTooltip(tooltipContent, e.clientX, e.clientY);
+                        });
+                        bookItem.addEventListener('mousemove', (e) => {
+                            showTooltip(tooltipContent, e.clientX, e.clientY);
+                        });
+                        bookItem.addEventListener('mouseleave', () => {
+                            hideTooltip();
+                        });
                         
                         problemBooksList.appendChild(bookItem);
                     });
@@ -1000,7 +1322,7 @@
                 }
             } catch (error) {
                 console.error('Error loading problem books:', error);
-                document.getElementById('problemBooks').innerHTML = '<div class="book-item"><div class="book-info"><div class="book-title">Error loading books com problemas</div></div></div>';
+                document.getElementById('problemBooks').innerHTML = '<div class="book-item"><div class="book-info"><div class="book-title">Error loading problem books</div></div></div>';
             }
         }
 
@@ -1038,7 +1360,7 @@
 
             try {
                 const params = new URLSearchParams({ query, limit: String(limit) });
-                const response = await fetch(`/api/search?${params.toString()}`, authFetchOptions());
+                const response = await fetch(`/api/search?${params.toString()}`);
 
                 if (!response.ok) {
                     let detail = `HTTP ${response.status}`;
@@ -1070,10 +1392,14 @@
                         const titleLine = item.author
                             ? `${item.title || 'Untitled'} · ${item.author}`
                             : (item.title || `book_id ${item.book_id}`);
+                        const bookId = item.book_id;
                         return `
                             <div class="result-item">
                                 <div class="result-head">
-                                    <span class="result-title">${escapeHtml(titleLine)}</span>
+                                    <div style="display: flex; align-items: center; gap: 10px; flex: 1;">
+                                        <input type="checkbox" class="result-checkbox" data-book-id="${bookId}" data-search-type="rag">
+                                        <span class="result-title">${escapeHtml(titleLine)}</span>
+                                    </div>
                                     <span class="result-similarity">${escapeHtml(similarity)}</span>
                                 </div>
                                 ${item.citation ? `<div class="result-citation">${escapeHtml(item.citation)}</div>` : ''}
@@ -1088,20 +1414,99 @@
                         ? metadata.available_formats.join(', ')
                         : (metadata.selected_format || book.file_type || '--');
                     const author = book.author || 'Unknown author';
-                    const publisher = Array.isArray(metadata.publishers) && metadata.publishers.length
+                    const publisher = book.publisher || (Array.isArray(metadata.publishers) && metadata.publishers.length
                         ? metadata.publishers.join(', ')
-                        : '';
+                        : '');
+                    const bookId = book.id;
+                    
+                    // RAG status badge
+                    let ragStatusBadge = '';
+                    if (book.rag_processed) {
+                        ragStatusBadge = '<span class="rag-status-badge processed">RAG Processed</span>';
+                    } else if (book.rag_in_queue) {
+                        ragStatusBadge = '<span class="rag-status-badge in-queue">In Queue</span>';
+                    } else if (book.rag_status === 'failed') {
+                        ragStatusBadge = '<span class="rag-status-badge failed">Failed</span>';
+                    } else {
+                        ragStatusBadge = '<span class="rag-status-badge pending">Not Processed</span>';
+                    }
+                    
+                    // Build tooltip content
+                    const tooltipContent = `
+                        <div class="book-tooltip-row">
+                            <span class="book-tooltip-label">Author:</span>
+                            <span class="book-tooltip-value">${escapeHtml(author)}</span>
+                        </div>
+                        <div class="book-tooltip-row">
+                            <span class="book-tooltip-label">Publisher:</span>
+                            <span class="book-tooltip-value">${escapeHtml(publisher || 'N/A')}</span>
+                        </div>
+                        <div class="book-tooltip-row">
+                            <span class="book-tooltip-label">Year:</span>
+                            <span class="book-tooltip-value">${book.year || 'N/A'}</span>
+                        </div>
+                        <div class="book-tooltip-row">
+                            <span class="book-tooltip-label">ISBN:</span>
+                            <span class="book-tooltip-value">${escapeHtml(book.isbn || 'N/A')}</span>
+                        </div>
+                        <div class="book-tooltip-row">
+                            <span class="book-tooltip-label">Pages:</span>
+                            <span class="book-tooltip-value">${book.page_count || 'N/A'}</span>
+                        </div>
+                        <div class="book-tooltip-row">
+                            <span class="book-tooltip-label">RAG Status:</span>
+                            <span class="book-tooltip-value">${ragStatusBadge}</span>
+                        </div>
+                        ${book.rag_error ? `<div class="book-tooltip-row"><span class="book-tooltip-label">Error:</span><span class="book-tooltip-value" style="color: #ff6b6b;">${escapeHtml(book.rag_error)}</span></div>` : ''}
+                    `;
+                    
                     return `
-                        <div class="result-item">
+                        <div class="result-item" data-tooltip-content="${encodeURIComponent(tooltipContent)}">
                             <div class="result-head">
-                                <span class="result-title">${escapeHtml(book.title || 'Untitled')}</span>
+                                <div style="display: flex; align-items: center; gap: 10px; flex: 1;">
+                                    <input type="checkbox" class="result-checkbox" data-book-id="${bookId}" data-search-type="catalog">
+                                    <span class="result-title">${escapeHtml(book.title || 'Untitled')}</span>
+                                </div>
                                 <span class="result-similarity">ID ${escapeHtml(book.id)}</span>
                             </div>
                             <div class="result-citation">${escapeHtml(author)}${publisher ? ` · ${escapeHtml(publisher)}` : ''}</div>
-                            <div class="result-content">Calibre ID: ${escapeHtml(book.calibre_id || '--')} · Formats: ${escapeHtml(formats)}</div>
+                            <div class="result-content">Calibre ID: ${escapeHtml(book.calibre_id || '--')} · Formats: ${escapeHtml(formats)} · ${ragStatusBadge}</div>
                         </div>
                     `;
                 }).join('');
+
+                // Show/hide action buttons based on results
+                const actionsEl = document.getElementById('catalogResultActions');
+                actionsEl.style.display = results.length > 0 ? 'flex' : 'none';
+
+                // Add checkbox event listeners
+                document.querySelectorAll('#catalogSearchResults .result-checkbox').forEach(checkbox => {
+                    checkbox.addEventListener('change', (e) => {
+                        const bookId = e.target.dataset.bookId;
+                        if (e.target.checked) {
+                            selectedCatalogBooks.add(bookId);
+                        } else {
+                            selectedCatalogBooks.delete(bookId);
+                        }
+                        document.getElementById('catalogSelectedCount').textContent = `${selectedCatalogBooks.size} selected`;
+                    });
+                });
+
+                // Add tooltip event listeners for catalog results
+                document.querySelectorAll('#catalogSearchResults .result-item').forEach(item => {
+                    const tooltipContent = decodeURIComponent(item.dataset.tooltipContent || '');
+                    if (tooltipContent) {
+                        item.addEventListener('mouseenter', (e) => {
+                            showTooltip(tooltipContent, e.clientX, e.clientY);
+                        });
+                        item.addEventListener('mousemove', (e) => {
+                            showTooltip(tooltipContent, e.clientX, e.clientY);
+                        });
+                        item.addEventListener('mouseleave', () => {
+                            hideTooltip();
+                        });
+                    }
+                });
             } catch (error) {
                 console.error('Catalog search error:', error);
                 statusEl.className = 'search-status error';
@@ -1139,11 +1544,9 @@
             resultsEl.innerHTML = '';
 
             try {
-                const base = authFetchOptions();
-                const headers = Object.assign({ 'Content-Type': 'application/json' }, base.headers || {});
                 const response = await fetch('/api/search/content', {
                     method: 'POST',
-                    headers,
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ query, limit, threshold })
                 });
 
@@ -1176,10 +1579,56 @@
                         : (r.title || `book_id ${r.book_id}`);
                     const citation = r.citation || '';
                     const content = r.content || '';
+                    const bookId = r.book_id;
+                    
+                    // RAG status badge
+                    let ragStatusBadge = '';
+                    if (r.rag_processed) {
+                        ragStatusBadge = '<span class="rag-status-badge processed">RAG Processed</span>';
+                    } else if (r.rag_in_queue) {
+                        ragStatusBadge = '<span class="rag-status-badge in-queue">In Queue</span>';
+                    } else if (r.rag_status === 'failed') {
+                        ragStatusBadge = '<span class="rag-status-badge failed">Failed</span>';
+                    } else {
+                        ragStatusBadge = '<span class="rag-status-badge pending">Not Processed</span>';
+                    }
+                    
+                    // Build tooltip content
+                    const tooltipContent = `
+                        <div class="book-tooltip-row">
+                            <span class="book-tooltip-label">Author:</span>
+                            <span class="book-tooltip-value">${escapeHtml(r.author || 'Unknown')}</span>
+                        </div>
+                        <div class="book-tooltip-row">
+                            <span class="book-tooltip-label">Publisher:</span>
+                            <span class="book-tooltip-value">${escapeHtml(r.publisher || 'N/A')}</span>
+                        </div>
+                        <div class="book-tooltip-row">
+                            <span class="book-tooltip-label">Year:</span>
+                            <span class="book-tooltip-value">${r.year || 'N/A'}</span>
+                        </div>
+                        <div class="book-tooltip-row">
+                            <span class="book-tooltip-label">ISBN:</span>
+                            <span class="book-tooltip-value">${escapeHtml(r.isbn || 'N/A')}</span>
+                        </div>
+                        <div class="book-tooltip-row">
+                            <span class="book-tooltip-label">Pages:</span>
+                            <span class="book-tooltip-value">${r.page_count || 'N/A'}</span>
+                        </div>
+                        <div class="book-tooltip-row">
+                            <span class="book-tooltip-label">RAG Status:</span>
+                            <span class="book-tooltip-value">${ragStatusBadge}</span>
+                        </div>
+                        ${r.rag_error ? `<div class="book-tooltip-row"><span class="book-tooltip-label">Error:</span><span class="book-tooltip-value" style="color: #ff6b6b;">${escapeHtml(r.rag_error)}</span></div>` : ''}
+                    `;
+                    
                     return `
-                        <div class="result-item">
+                        <div class="result-item" data-tooltip-content="${encodeURIComponent(tooltipContent)}">
                             <div class="result-head">
-                                <span class="result-title">${escapeHtml(titleLine)}</span>
+                                <div style="display: flex; align-items: center; gap: 10px; flex: 1;">
+                                    <input type="checkbox" class="result-checkbox" data-book-id="${bookId}" data-search-type="rag">
+                                    <span class="result-title">${escapeHtml(titleLine)}</span>
+                                </div>
                                 <span class="result-similarity">${escapeHtml(similarity)}</span>
                             </div>
                             ${citation ? `<div class="result-citation">${escapeHtml(citation)}</div>` : ''}
@@ -1187,6 +1636,39 @@
                         </div>
                     `;
                 }).join('');
+
+                // Show/hide action buttons based on results
+                const actionsEl = document.getElementById('ragResultActions');
+                actionsEl.style.display = results.length > 0 ? 'flex' : 'none';
+
+                // Add checkbox event listeners
+                document.querySelectorAll('#ragSearchResults .result-checkbox').forEach(checkbox => {
+                    checkbox.addEventListener('change', (e) => {
+                        const bookId = e.target.dataset.bookId;
+                        if (e.target.checked) {
+                            selectedRagBooks.add(bookId);
+                        } else {
+                            selectedRagBooks.delete(bookId);
+                        }
+                        document.getElementById('ragSelectedCount').textContent = `${selectedRagBooks.size} selected`;
+                    });
+                });
+
+                // Add tooltip event listeners for RAG results
+                document.querySelectorAll('#ragSearchResults .result-item').forEach(item => {
+                    const tooltipContent = decodeURIComponent(item.dataset.tooltipContent || '');
+                    if (tooltipContent) {
+                        item.addEventListener('mouseenter', (e) => {
+                            showTooltip(tooltipContent, e.clientX, e.clientY);
+                        });
+                        item.addEventListener('mousemove', (e) => {
+                            showTooltip(tooltipContent, e.clientX, e.clientY);
+                        });
+                        item.addEventListener('mouseleave', () => {
+                            hideTooltip();
+                        });
+                    }
+                });
             } catch (error) {
                 console.error('RAG search error:', error);
                 statusEl.className = 'search-status error';
@@ -1196,11 +1678,96 @@
             }
         }
 
+        async function processSelectedBooks(searchType) {
+            const selectedSet = searchType === 'catalog' ? selectedCatalogBooks : selectedRagBooks;
+            const buttonId = searchType === 'catalog' ? 'processCatalogButton' : 'processRagButton';
+
+            if (selectedSet.size === 0) {
+                alert('Please select at least one book to process');
+                return;
+            }
+
+            const button = document.getElementById(buttonId);
+            button.disabled = true;
+            button.classList.add('processing');
+            button.textContent = 'Processing...';
+
+            try {
+                const bookIds = Array.from(selectedSet);
+                const response = await fetch('/api/embeddings/priority-queue', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ book_ids: bookIds })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to queue books for processing');
+                }
+
+                const result = await response.json();
+                alert(`Successfully queued ${result.queued_count} book(s) for immediate processing`);
+
+                // Clear selection
+                selectedSet.clear();
+                document.getElementById(`${searchType}SelectedCount`).textContent = '0 selected';
+
+                // Uncheck all checkboxes
+                document.querySelectorAll(`#${searchType}SearchResults .result-checkbox`).forEach(cb => {
+                    cb.checked = false;
+                });
+
+                // Refresh priority queue
+                await updatePriorityQueue();
+            } catch (error) {
+                console.error('Error processing books:', error);
+                alert(`Error: ${error.message}`);
+            } finally {
+                button.disabled = false;
+                button.classList.remove('processing');
+                button.textContent = 'Process Selected Books (RAG)';
+            }
+        }
+
+        async function updatePriorityQueue() {
+            try {
+                const response = await fetch('/api/embeddings/priority-queue');
+                if (!response.ok) {
+                    throw new Error('Failed to fetch priority queue');
+                }
+
+                const queueItems = await response.json();
+                const queueList = document.getElementById('priorityQueueList');
+
+                if (!queueItems || queueItems.length === 0) {
+                    queueList.innerHTML = '<div style="color: #666; font-size: 0.9em;">No books in priority queue</div>';
+                    return;
+                }
+
+                queueList.innerHTML = queueItems.map(item => {
+                    const statusClass = item.status || 'pending';
+                    const statusText = item.status ? item.status.charAt(0).toUpperCase() + item.status.slice(1) : 'Pending';
+                    return `
+                        <div class="priority-queue-item ${statusClass}">
+                            <div class="priority-queue-info">
+                                <div class="priority-queue-book-title">${escapeHtml(item.title || `Book ID ${item.book_id}`)}</div>
+                                <div style="font-size: 0.8em; color: #666; margin-top: 2px;">
+                                    ${item.author ? escapeHtml(item.author) : ''}
+                                </div>
+                            </div>
+                            <span class="priority-queue-status ${statusClass}">${statusText}</span>
+                        </div>
+                    `;
+                }).join('');
+            } catch (error) {
+                console.error('Error updating priority queue:', error);
+            }
+        }
+
         function connectWebSocket() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const apiKey = getApiKey();
-            const wsUrl = `${protocol}//${window.location.host}/ws/stats${apiKey ? `?api_key=${encodeURIComponent(apiKey)}` : ''}`;
-            
+            const wsUrl = `${protocol}//${window.location.host}/ws/stats`;
+
             ws = new WebSocket(wsUrl);
 
             ws.onopen = () => {
@@ -1212,9 +1779,11 @@
             ws.onmessage = (event) => {
                 const message = JSON.parse(event.data);
                 console.log('Received:', message);
-                
+
                 if (message.type === 'initial' || message.type === 'update') {
                     updateDashboard(message.data);
+                    // Also update priority queue on dashboard updates
+                    updatePriorityQueue();
                 }
             };
 
@@ -1222,7 +1791,7 @@
                 console.log('WebSocket disconnected');
                 document.getElementById('statusDot').className = 'status-dot disconnected';
                 document.getElementById('statusText').textContent = 'Disconnected - Reconnecting...';
-                
+
                 // Attempt to reconnect after 5 seconds
                 setTimeout(connectWebSocket, 5000);
             };
@@ -1234,17 +1803,6 @@
             };
         }
 
-        function getApiKey() {
-            if (!dashboardApiKey) {
-                dashboardApiKey = window.prompt('API key') || '';
-            }
-            return dashboardApiKey;
-        }
-
-        function authFetchOptions() {
-            const apiKey = getApiKey();
-            return apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : {};
-        }
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
@@ -1254,6 +1812,10 @@
             loadProblemBooks();
             document.getElementById('catalogSearchForm').addEventListener('submit', runCatalogSearch);
             document.getElementById('ragSearchForm').addEventListener('submit', runRagSearch);
+            document.getElementById('processCatalogButton').addEventListener('click', () => processSelectedBooks('catalog'));
+            document.getElementById('processRagButton').addEventListener('click', () => processSelectedBooks('rag'));
+            // Initial priority queue update
+            updatePriorityQueue();
         });
     </script>
 </body>

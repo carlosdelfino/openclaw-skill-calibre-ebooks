@@ -404,8 +404,25 @@ class EmbeddingService:
         return self.generate_embedding(query)
     
     def search_similar_content(self, query: str, limit: int = 10, 
-                               threshold: float = None) -> List[dict]:
-        """Search for similar content using semantic search."""
+                               threshold: float = None, include_totals: bool = False,
+                               chunks_before: int = 0, chunks_after: int = 0,
+                               pages_before: int = 0, pages_after: int = 0) -> Any:
+        """Search for similar content using semantic search.
+        
+        Args:
+            query: Search query text
+            limit: Maximum number of results to return
+            threshold: Minimum similarity score (0-1)
+            include_totals: If True, return total counts of chunks and pages above threshold
+            chunks_before: Number of chunks before each result to include
+            chunks_after: Number of chunks after each result to include
+            pages_before: Number of pages before each result to include
+            pages_after: Number of pages after each result to include
+        
+        Returns:
+            When include_totals=False: List of result dicts (backward compatible)
+            When include_totals=True: Dict with 'results' list and 'total_chunks'/'total_pages'
+        """
         threshold = threshold or settings.SIMILARITY_THRESHOLD
         
         try:
@@ -413,11 +430,28 @@ class EmbeddingService:
             query_embedding = self.generate_query_embedding(query)
             
             # Perform semantic search in PostgreSQL
-            results = postgres_db.semantic_search(query_embedding, limit, threshold)
+            response = postgres_db.semantic_search(query_embedding, limit, threshold, include_totals)
+            results = response.get('results', [])
+            
+            # Expand context if requested
+            if chunks_before > 0 or chunks_after > 0 or pages_before > 0 or pages_after > 0:
+                results = postgres_db.expand_search_context(
+                    results, chunks_before, chunks_after, pages_before, pages_after
+                )
+            
             for result in results:
                 result["citation"] = self._format_citation(result)
             
             logger.info(f"Semantic search for '{query}' returned {len(results)} results")
+            
+            if include_totals:
+                return {
+                    'results': results,
+                    'total_chunks': response.get('total_chunks'),
+                    'total_pages': response.get('total_pages')
+                }
+            
+            # Backward compatible: return list directly when include_totals=False
             return results
         except Exception as e:
             logger.error(f"Error in semantic search: {e}")
@@ -445,7 +479,7 @@ class EmbeddingService:
                 "error": str(e)
             }
     
-    def queue_embedding_generation(self, book_id: int, pdf_path: Path) -> dict:
+    def queue_embedding_generation(self, book_id: int, pdf_path: Path, priority: int = 0) -> dict:
         """Queue a book for embedding generation."""
         try:
             # Check if already queued
@@ -465,11 +499,11 @@ class EmbeddingService:
                     "queue_id": existing['id'],
                     "queue_status": existing['status']
                 }
-            
-            # Add to queue
-            queue_id = postgres_db.add_to_queue(book_id)
-            
-            logger.info(f"Book {book_id} queued for embedding generation (queue_id: {queue_id})")
+
+            # Add to queue with specified priority
+            queue_id = postgres_db.add_to_queue(book_id, priority=priority)
+
+            logger.info(f"Book {book_id} queued for embedding generation with priority {priority} (queue_id: {queue_id})")
             return {
                 "book_id": book_id,
                 "status": "queued",

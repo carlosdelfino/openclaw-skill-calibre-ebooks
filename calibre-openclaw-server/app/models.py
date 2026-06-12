@@ -15,6 +15,16 @@ class BookResponse(BaseModel):
     metadata: Optional[Dict[str, Any]] = None
     indexed_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    # Additional metadata fields
+    publisher: Optional[str] = None
+    year: Optional[int] = None
+    isbn: Optional[str] = None
+    page_count: Optional[int] = None
+    # RAG processing status
+    rag_processed: bool = False
+    rag_in_queue: bool = False
+    rag_status: Optional[str] = None
+    rag_error: Optional[str] = None
     
     class Config:
         from_attributes = True
@@ -39,6 +49,11 @@ class ContentSearchRequest(BaseModel):
     query: str = Field(..., min_length=1, description="Search query for content")
     limit: int = Field(default=10, ge=1, le=50, description="Maximum results")
     threshold: float = Field(default=0.3, ge=0.0, le=1.0, description="Similarity threshold")
+    include_totals: bool = Field(default=False, description="Include total chunks and pages counts")
+    chunks_before: int = Field(default=0, ge=0, le=10, description="Number of chunks before each result to include")
+    chunks_after: int = Field(default=0, ge=0, le=10, description="Number of chunks after each result to include")
+    pages_before: int = Field(default=0, ge=0, le=10, description="Number of pages before each result to include")
+    pages_after: int = Field(default=0, ge=0, le=10, description="Number of pages after each result to include")
 
 
 class SearchResult(BaseModel):
@@ -55,6 +70,16 @@ class SearchResult(BaseModel):
     page_end: Optional[int] = None
     section_title: Optional[str] = None
     citation: Optional[str] = None
+    # Additional book metadata
+    publisher: Optional[str] = None
+    year: Optional[int] = None
+    isbn: Optional[str] = None
+    page_count: Optional[int] = None
+    # RAG processing status
+    rag_processed: bool = False
+    rag_in_queue: bool = False
+    rag_status: Optional[str] = None
+    rag_error: Optional[str] = None
     
     class Config:
         from_attributes = True
@@ -132,3 +157,10 @@ class ErrorResponse(BaseModel):
     """Response model for errors."""
     error: str
     detail: Optional[str] = None
+
+
+class SemanticSearchResponse(BaseModel):
+    """Response model for semantic search with optional totals metadata."""
+    results: List[SearchResult]
+    total_chunks: Optional[int] = None
+    total_pages: Optional[int] = None

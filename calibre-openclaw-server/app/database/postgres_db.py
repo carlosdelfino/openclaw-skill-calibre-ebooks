@@ -403,7 +403,10 @@ class PostgreSQLDB:
         with self.get_connection() as conn:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
             cursor.execute(query, (book_id,))
-            return cursor.fetchone()
+            book = cursor.fetchone()
+            if book:
+                return self._enrich_book_with_metadata(book)
+            return None
     
     def get_book_by_calibre_id(self, calibre_id: int) -> Optional[Dict[str, Any]]:
         """Get a book by Calibre ID."""
@@ -412,8 +415,104 @@ class PostgreSQLDB:
         with self.get_connection() as conn:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
             cursor.execute(query, (calibre_id,))
-            return cursor.fetchone()
+            book = cursor.fetchone()
+            if book:
+                return self._enrich_book_with_metadata(book)
+            return None
     
+    def _enrich_book_with_metadata(self, book: Dict[str, Any]) -> Dict[str, Any]:
+        """Enrich a book dict with extracted metadata and RAG status."""
+        # Extract metadata from JSONB
+        metadata = book.get('metadata', {}) or {}
+        if isinstance(metadata, str):
+            try:
+                metadata = json.loads(metadata)
+            except:
+                metadata = {}
+        
+        # Extract publisher
+        publishers = metadata.get('publishers', [])
+        if publishers and isinstance(publishers, list) and len(publishers) > 0:
+            book['publisher'] = publishers[0] if isinstance(publishers[0], str) else str(publishers[0])
+        else:
+            book['publisher'] = None
+        
+        # Extract year from pubdate
+        pubdate = metadata.get('pubdate')
+        if pubdate:
+            try:
+                # pubdate might be ISO format or just year
+                if isinstance(pubdate, str):
+                    if len(pubdate) >= 4:
+                        book['year'] = int(pubdate[:4])
+                    else:
+                        book['year'] = int(pubdate)
+                else:
+                    book['year'] = pubdate
+            except (ValueError, TypeError):
+                book['year'] = None
+        else:
+            book['year'] = None
+        
+        # Extract ISBN from identifiers if available
+        identifiers = metadata.get('identifiers', {})
+        if identifiers and isinstance(identifiers, dict):
+            isbn = identifiers.get('isbn')
+            if isbn:
+                book['isbn'] = isbn
+            else:
+                book['isbn'] = None
+        else:
+            book['isbn'] = None
+        
+        # Get page count from book chunks (max page_end)
+        book_id = book.get('id')
+        if book_id:
+            try:
+                with self.get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute(
+                        "SELECT COALESCE(MAX(page_end), 0) as max_page FROM book_chunks WHERE book_id = %s",
+                        (book_id,)
+                    )
+                    result = cursor.fetchone()
+                    book['page_count'] = result[0] if result and result[0] > 0 else None
+            except Exception as e:
+                logger.warning(f"Error getting page count for book {book_id}: {e}")
+                book['page_count'] = None
+        else:
+            book['page_count'] = None
+        
+        # Get RAG processing status
+        if book_id:
+            try:
+                # Check if has embeddings
+                book['rag_processed'] = self.has_embeddings(book_id)
+                
+                # Check queue status
+                queue_status = self.get_queue_status(book_id)
+                if queue_status:
+                    book['rag_in_queue'] = queue_status['status'] in ('pending', 'processing')
+                    book['rag_status'] = queue_status['status']
+                    book['rag_error'] = queue_status.get('error_message')
+                else:
+                    book['rag_in_queue'] = False
+                    book['rag_status'] = None
+                    book['rag_error'] = None
+            except Exception as e:
+                logger.warning(f"Error getting RAG status for book {book_id}: {e}")
+                book['rag_processed'] = False
+                book['rag_in_queue'] = False
+                book['rag_status'] = None
+                book['rag_error'] = None
+        else:
+            book['rag_processed'] = False
+            book['rag_in_queue'] = False
+            book['rag_status'] = None
+            book['rag_error'] = None
+        
+        return book
+
     def get_all_books(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
         """Get all books with pagination."""
         query = "SELECT * FROM books ORDER BY title LIMIT %s OFFSET %s"
@@ -423,8 +522,10 @@ class PostgreSQLDB:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
             cursor.execute(query, (limit, offset))
             books = cursor.fetchall()
-            logger.info(f"PostgreSQLDB.get_all_books: retrieved {len(books)} books")
-            return books
+            # Enrich with metadata and RAG status
+            enriched_books = [self._enrich_book_with_metadata(book) for book in books]
+            logger.info(f"PostgreSQLDB.get_all_books: retrieved {len(enriched_books)} books")
+            return enriched_books
     
     def search_books(self, query: str, limit: int = 50) -> List[Dict[str, Any]]:
         """Search books by title, author, or metadata.
@@ -462,7 +563,10 @@ class PostgreSQLDB:
         with self.get_connection() as conn:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
             cursor.execute(search_query, params)
-            return cursor.fetchall()
+            books = cursor.fetchall()
+            # Enrich with metadata and RAG status
+            enriched_books = [self._enrich_book_with_metadata(book) for book in books]
+            return enriched_books
     
     # Book chunks operations
     def insert_chunk(self, book_id: int, chunk_index: int, content: str, 
@@ -557,8 +661,18 @@ class PostgreSQLDB:
     
     # Semantic search
     def semantic_search(self, query_embedding: List[float], limit: int = 10, 
-                        threshold: float = 0.3) -> List[Dict[str, Any]]:
-        """Search for similar content using vector similarity."""
+                        threshold: float = 0.3, include_totals: bool = False) -> Dict[str, Any]:
+        """Search for similar content using vector similarity.
+        
+        Args:
+            query_embedding: Vector embedding for the search query
+            limit: Maximum number of results to return
+            threshold: Minimum similarity score (0-1)
+            include_totals: If True, return total counts of chunks and pages above threshold
+        
+        Returns:
+            Dict with 'results' list and optionally 'total_chunks' and 'total_pages'
+        """
         query = """
         SELECT 
             bc.id,
@@ -571,6 +685,7 @@ class PostgreSQLDB:
             bc.section_title,
             b.title,
             b.author,
+            b.metadata,
             1 - (bc.embedding <=> %s::vector) as similarity
         FROM book_chunks bc
         JOIN books b ON bc.book_id = b.id
@@ -584,10 +699,202 @@ class PostgreSQLDB:
             cursor.execute(query, (query_embedding, query_embedding, limit))
             results = cursor.fetchall()
             
-            # Filter by threshold
-            filtered = [r for r in results if r['similarity'] >= threshold]
+            # Filter by threshold and enrich with book metadata
+            filtered = []
+            for r in results:
+                if r['similarity'] >= threshold:
+                    # Create a minimal book dict for enrichment
+                    book_dict = {
+                        'id': r['book_id'],
+                        'metadata': r.get('metadata')
+                    }
+                    enriched_book = self._enrich_book_with_metadata(book_dict)
+                    # Add enriched fields to the result
+                    r['publisher'] = enriched_book.get('publisher')
+                    r['year'] = enriched_book.get('year')
+                    r['isbn'] = enriched_book.get('isbn')
+                    r['page_count'] = enriched_book.get('page_count')
+                    r['rag_processed'] = enriched_book.get('rag_processed', False)
+                    r['rag_in_queue'] = enriched_book.get('rag_in_queue', False)
+                    r['rag_status'] = enriched_book.get('rag_status')
+                    r['rag_error'] = enriched_book.get('rag_error')
+                    filtered.append(r)
+            
             logger.info(f"Semantic search returned {len(filtered)} results above threshold {threshold}")
-            return filtered
+            
+            response = {"results": filtered}
+            
+            if include_totals:
+                # Count total chunks above threshold
+                count_query = """
+                SELECT COUNT(*) as total_chunks
+                FROM book_chunks bc
+                WHERE bc.embedding IS NOT NULL
+                AND 1 - (bc.embedding <=> %s::vector) >= %s
+                """
+                cursor.execute(count_query, (query_embedding, threshold))
+                total_chunks = cursor.fetchone()['total_chunks']
+                response['total_chunks'] = total_chunks
+                
+                # Count unique pages above threshold
+                pages_query = """
+                SELECT COUNT(DISTINCT bc.page_start) as total_pages
+                FROM book_chunks bc
+                WHERE bc.embedding IS NOT NULL
+                AND bc.page_start IS NOT NULL
+                AND 1 - (bc.embedding <=> %s::vector) >= %s
+                """
+                cursor.execute(pages_query, (query_embedding, threshold))
+                total_pages = cursor.fetchone()['total_pages']
+                response['total_pages'] = total_pages
+                
+                logger.info(f"Semantic search totals: {total_chunks} chunks, {total_pages} pages above threshold {threshold}")
+            
+            return response
+    
+    def expand_search_context(self, results: List[Dict[str, Any]], 
+                              chunks_before: int = 0, chunks_after: int = 0,
+                              pages_before: int = 0, pages_after: int = 0) -> List[Dict[str, Any]]:
+        """Expand search results with surrounding chunks and pages.
+        
+        Args:
+            results: Original search results
+            chunks_before: Number of chunks before each result to include
+            chunks_after: Number of chunks after each result to include
+            pages_before: Number of pages before each result to include
+            pages_after: Number of pages after each result to include
+        
+        Returns:
+            Expanded list of chunks with context
+        """
+        if not results or (chunks_before == 0 and chunks_after == 0 and 
+                          pages_before == 0 and pages_after == 0):
+            return results
+        
+        expanded_chunks = {}
+        seen_chunk_ids = set()
+        
+        with self.get_connection() as conn:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            
+            for result in results:
+                book_id = result.get('book_id')
+                chunk_index = result.get('chunk_index')
+                page_start = result.get('page_start')
+                
+                if not book_id:
+                    continue
+                
+                # Add the original result
+                chunk_id = result.get('id')
+                if chunk_id and chunk_id not in seen_chunk_ids:
+                    expanded_chunks[chunk_id] = result
+                    seen_chunk_ids.add(chunk_id)
+                
+                # Expand by chunks (chunk_index)
+                if chunks_before > 0 or chunks_after > 0 and chunk_index is not None:
+                    min_chunk = max(0, chunk_index - chunks_before)
+                    max_chunk = chunk_index + chunks_after
+                    
+                    chunk_query = """
+                    SELECT 
+                        bc.id,
+                        bc.id as chunk_id,
+                        bc.book_id,
+                        bc.chunk_index,
+                        bc.content,
+                        bc.page_start,
+                        bc.page_end,
+                        bc.section_title,
+                        b.title,
+                        b.author,
+                        b.metadata
+                    FROM book_chunks bc
+                    JOIN books b ON bc.book_id = b.id
+                    WHERE bc.book_id = %s
+                    AND bc.chunk_index >= %s
+                    AND bc.chunk_index <= %s
+                    """
+                    cursor.execute(chunk_query, (book_id, min_chunk, max_chunk))
+                    context_chunks = cursor.fetchall()
+                    
+                    for chunk in context_chunks:
+                        cid = chunk['id']
+                        if cid not in seen_chunk_ids:
+                            # Enrich with book metadata
+                            book_dict = {
+                                'id': chunk['book_id'],
+                                'metadata': chunk.get('metadata')
+                            }
+                            enriched_book = self._enrich_book_with_metadata(book_dict)
+                            chunk['publisher'] = enriched_book.get('publisher')
+                            chunk['year'] = enriched_book.get('year')
+                            chunk['isbn'] = enriched_book.get('isbn')
+                            chunk['page_count'] = enriched_book.get('page_count')
+                            chunk['rag_processed'] = enriched_book.get('rag_processed', False)
+                            chunk['rag_in_queue'] = enriched_book.get('rag_in_queue', False)
+                            chunk['rag_status'] = enriched_book.get('rag_status')
+                            chunk['rag_error'] = enriched_book.get('rag_error')
+                            expanded_chunks[cid] = chunk
+                            seen_chunk_ids.add(cid)
+                
+                # Expand by pages (page_start)
+                if pages_before > 0 or pages_after > 0 and page_start is not None:
+                    min_page = max(1, page_start - pages_before)
+                    max_page = page_start + pages_after
+                    
+                    page_query = """
+                    SELECT 
+                        bc.id,
+                        bc.id as chunk_id,
+                        bc.book_id,
+                        bc.chunk_index,
+                        bc.content,
+                        bc.page_start,
+                        bc.page_end,
+                        bc.section_title,
+                        b.title,
+                        b.author,
+                        b.metadata
+                    FROM book_chunks bc
+                    JOIN books b ON bc.book_id = b.id
+                    WHERE bc.book_id = %s
+                    AND bc.page_start IS NOT NULL
+                    AND bc.page_start >= %s
+                    AND bc.page_start <= %s
+                    """
+                    cursor.execute(page_query, (book_id, min_page, max_page))
+                    page_chunks = cursor.fetchall()
+                    
+                    for chunk in page_chunks:
+                        cid = chunk['id']
+                        if cid not in seen_chunk_ids:
+                            # Enrich with book metadata
+                            book_dict = {
+                                'id': chunk['book_id'],
+                                'metadata': chunk.get('metadata')
+                            }
+                            enriched_book = self._enrich_book_with_metadata(book_dict)
+                            chunk['publisher'] = enriched_book.get('publisher')
+                            chunk['year'] = enriched_book.get('year')
+                            chunk['isbn'] = enriched_book.get('isbn')
+                            chunk['page_count'] = enriched_book.get('page_count')
+                            chunk['rag_processed'] = enriched_book.get('rag_processed', False)
+                            chunk['rag_in_queue'] = enriched_book.get('rag_in_queue', False)
+                            chunk['rag_status'] = enriched_book.get('rag_status')
+                            chunk['rag_error'] = enriched_book.get('rag_error')
+                            expanded_chunks[cid] = chunk
+                            seen_chunk_ids.add(cid)
+        
+        # Convert to list and sort by book_id and chunk_index for consistent ordering
+        expanded_list = list(expanded_chunks.values())
+        expanded_list.sort(key=lambda x: (x.get('book_id', 0), x.get('chunk_index', 0)))
+        
+        logger.info(f"Expanded {len(results)} results to {len(expanded_list)} chunks "
+                   f"(chunks_before={chunks_before}, chunks_after={chunks_after}, "
+                   f"pages_before={pages_before}, pages_after={pages_after})")
+        
+        return expanded_list
     
     # Processing queue operations
     def add_to_queue(self, book_id: int, priority: int = 0) -> int:
@@ -638,14 +945,42 @@ class PostgreSQLDB:
     def get_pending_queue_items(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Get pending items from the processing queue."""
         query = """
-        SELECT pq.*, b.title 
+        SELECT pq.*, b.title
         FROM processing_queue pq
         JOIN books b ON pq.book_id = b.id
         WHERE pq.status = 'pending'
         ORDER BY pq.priority DESC, pq.created_at ASC
         LIMIT %s
         """
-        
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor.execute(query, (limit,))
+            return cursor.fetchall()
+
+    def update_queue_priority(self, book_id: int, priority: int):
+        """Update the priority of a queue item for a book."""
+        query = """
+        UPDATE processing_queue
+        SET priority = %s
+        WHERE book_id = %s AND status IN ('pending', 'processing')
+        """
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor.execute(query, (priority, book_id))
+            logger.info(f"Updated priority for book {book_id} to {priority}")
+
+    def get_priority_queue_items(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """Get high priority items from the processing queue (priority > 0)."""
+        query = """
+        SELECT pq.*
+        FROM processing_queue pq
+        WHERE pq.status IN ('pending', 'processing') AND pq.priority > 0
+        ORDER BY pq.priority DESC, pq.created_at ASC
+        LIMIT %s
+        """
+
         with self.get_connection() as conn:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
             cursor.execute(query, (limit,))

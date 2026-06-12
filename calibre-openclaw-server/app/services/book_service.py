@@ -173,8 +173,94 @@ class BookService:
         return books
     
     def search_books(self, query: str, limit: int = 50) -> List[Dict[str, Any]]:
-        """Search books by title, author, or metadata."""
-        return postgres_db.search_books(query, limit)
+        """Search books by title, author, or metadata in both PostgreSQL and Calibre DB.
+        
+        Searches in PostgreSQL first (synchronized books), then in Calibre metadata.db
+        to include newly added books that haven't been synced yet. Results are merged
+        with PostgreSQL books taking priority.
+        """
+        logger.info(f"[book_service.py:search_books:182] Starting catalog search - query={query}, limit={limit}")
+        
+        # Search in PostgreSQL (synchronized books)
+        postgres_results = postgres_db.search_books(query, limit)
+        postgres_calibre_ids = {book.get('calibre_id') for book in postgres_results if book.get('calibre_id')}
+        
+        logger.info(f"[book_service.py:search_books:188] PostgreSQL search completed - postgres_count={len(postgres_results)}")
+        
+        # Search in Calibre metadata.db (all books including new ones)
+        try:
+            calibre_results = self.calibre_db.search_books(query)
+            logger.info(f"[book_service.py:search_books:193] Calibre DB search completed - calibre_count={len(calibre_results)}")
+        except Exception as e:
+            logger.warning(f"[book_service.py:search_books:195] Calibre DB search failed - error={e}")
+            calibre_results = []
+        
+        # Filter Calibre results to only include books not already in PostgreSQL
+        new_books = [
+            book for book in calibre_results
+            if book.get('calibre_id') not in postgres_calibre_ids
+        ]
+        
+        if new_books:
+            logger.info(f"[book_service.py:search_books:205] Found new books in Calibre - new_count={len(new_books)}")
+            
+            # Optionally sync new books found in Calibre
+            for book in new_books[:limit - len(postgres_results)]:
+                calibre_id = book.get('calibre_id')
+                if calibre_id:
+                    try:
+                        # Get full book details from Calibre
+                        full_book = self.calibre_db.get_book_by_id(calibre_id)
+                        if full_book:
+                            # Get file info
+                            file_info = self.calibre_db.get_book_file_info(calibre_id)
+                            if file_info:
+                                full_path = self.library_path / file_info["path"]
+                                
+                                if full_path.exists():
+                                    # Get additional metadata
+                                    tags = self.calibre_db.get_book_tags(calibre_id)
+                                    publishers = self.calibre_db.get_book_publishers(calibre_id)
+                                    
+                                    metadata = {
+                                        'uuid': full_book.get('uuid'),
+                                        'pubdate': full_book.get('pubdate'),
+                                        'series_index': full_book.get('series_index'),
+                                        'tags': tags,
+                                        'publishers': publishers,
+                                        'last_modified': full_book.get('last_modified'),
+                                        'selected_format': file_info["format"],
+                                        'available_formats': file_info["available_formats"],
+                                    }
+                                    
+                                    # Insert into PostgreSQL
+                                    book_id = postgres_db.insert_book(
+                                        calibre_id=calibre_id,
+                                        title=full_book['title'],
+                                        file_path=str(full_path),
+                                        author=full_book.get('authors'),
+                                        metadata=metadata
+                                    )
+                                    
+                                    # Add postgres_id to the book dict for consistent response
+                                    book['id'] = book_id
+                                    book['file_path'] = str(full_path)
+                                    book['author'] = full_book.get('authors')
+                                    book['metadata'] = metadata
+                                    
+                                    # Enrich with additional metadata and RAG status
+                                    enriched_book = postgres_db._enrich_book_with_metadata(book)
+                                    book.update(enriched_book)
+                                    
+                                    logger.info(f"[book_service.py:search_books:249] Auto-synced book during search - calibre_id={calibre_id}, title={full_book['title']}, postgres_id={book_id}")
+                    except Exception as e:
+                        logger.warning(f"[book_service.py:search_books:251] Auto-sync failed for book - calibre_id={calibre_id}, error={e}")
+        
+        # Merge results: PostgreSQL books first, then new Calibre books
+        merged_results = postgres_results + new_books[:limit - len(postgres_results)]
+        
+        logger.info(f"[book_service.py:search_books:256] Search completed - total={len(merged_results)}, postgres={len(postgres_results)}, new_from_calibre={len(new_books)}")
+        return merged_results
 
     def _book_file_path(self, book_id: int) -> Optional[Path]:
         book = postgres_db.get_book_by_id(book_id)
