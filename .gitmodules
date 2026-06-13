@@ -1,0 +1,3 @@
+[submodule "calibre-openclaw-gateway"]
+	path = calibre-openclaw-gateway
+	url = https://github.com/carlosdelfino/calibre-openclaw-gateway.git

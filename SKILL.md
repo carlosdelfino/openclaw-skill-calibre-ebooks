@@ -14,7 +14,7 @@ semantic RAG.
 
 ## Primary Interface
 
-Use the Books API first for local catalog discovery, metadata, formats, covers,
+Use the Books API for local catalog discovery, metadata, formats, covers,
 local file access, and library statistics.
 
 - Base URL: `http://host.docker.internal:6180`
@@ -23,9 +23,7 @@ local file access, and library statistics.
 - OpenAPI JSON: `http://host.docker.internal:6180/openapi.json`
 - Python API client: `scripts/books_api_client.py`
 
-Do not assume endpoint names. Read `/openapi.json` through the Python API client,
-then choose the path, method, query parameters, request body, and response schema
-published by the running service.
+Do not assume endpoint names or hardcode URLs. The Python API client `books_api_client.py` features a dynamic discovery and scoring engine that auto-resolves logical actions (like searching, detail lookup, downloading, covers, stats, health status, and uploading) to the actual active endpoints defined in the current OpenAPI specification (`/openapi.json`). For custom endpoints not covered by logical commands, use the `find` command to discover details dynamically.
 
 ## Directory Reference Map
 
@@ -49,8 +47,8 @@ External paths from the sandbox workspace and internal paths inside the sandbox:
 - `agents/rapport-bibliotecario/memory/calibre-import-queue/` - manual import
   queue for received book attachments. This is inside the OpenClaw workspace but
   outside this skill directory; use it only for queued inbound attachments.
-- `memory/calibre-missing-books.md` - append-only missing-book log when this
-  skill runs in an agent workspace that provides a `memory/` directory.
+- `/api/downloads/queue` - download queue endpoint to record and process missing books.
+
 
 External or mapped paths and services:
 
@@ -63,7 +61,6 @@ External or mapped paths and services:
 - `/skill/calibre-books/tmp/...` - operating-system temporary space. Use only for ephemeral local
   experiments. Prefer `skills/calibre-ebooks/tmp/...` for files that may need to
   be attached, inspected, or cleaned by the skill.
-
 
 ## Python API Client
 
@@ -104,38 +101,23 @@ Global option:
 - `--base URL` - override `BOOKS_API_URL` and the default Books API URL for this
   invocation.
 
-Commands:
+### Dynamic Auto-Discovery Commands
 
-- `docs` - print Swagger UI, ReDoc, and OpenAPI JSON URLs for the selected API
-  base.
+To support seamless gateway evolution, the client automatically discovers and maps the best-fitting active endpoints and parameters from the API's OpenAPI specification at runtime. Prefer these commands to avoid hardcoding routes:
+
+- `docs` - print Swagger UI, ReDoc, and OpenAPI JSON URLs for the selected API base.
 - `openapi` - fetch and print the current OpenAPI JSON document.
-- `paths` - summarize available API paths with methods, operation IDs, path
-  parameters, and query parameters.
-- `search QUERY [--limit N]` - flexible search through the Books API. The
-  server searches the catalog first and, when no catalog result is found, may
-  fall back to semantic/RAG content results.
-- `semantic QUERY [--limit N] [--threshold VALUE]` - search embedded book
-  content through the Books API semantic/RAG endpoint only. Use this for
-  explicit RAG/content testing, not for ordinary book discovery.
-- `book BOOK_ID` - fetch book details by ID using the best matching detail
-  endpoint discovered from OpenAPI.
-- `request METHOD PATH [--query KEY=VALUE ...] [--body JSON] [--output PATH]
-  [--output-dir DIR]` - call a specific endpoint after inspecting OpenAPI.
-
-`request` parameters:
-
-- `METHOD` - one of `GET`, `POST`, `PUT`, `PATCH`, or `DELETE`.
-- `PATH` - API path such as `/api/books`, or a full `http(s)` URL.
-- `--query KEY=VALUE` - add one query-string pair. Repeat it for multiple
-  parameters, for example `--query q=python --query limit=10`.
-- `--body JSON` - send a raw JSON request body. The client sets
-  `Content-Type: application/json`.
-- `--output PATH` - save the response to a file or directory. If `PATH` ends
-  with `/` or is an existing directory, the API filename or a safe fallback name
-  is used.
-- `--output-dir DIR` - create/use `DIR` and save the response there with the
-  API filename or a safe fallback name. Prefer this for temporary local file
-  exports and covers.
+- `paths` - summarize available API paths with methods, operation IDs, path parameters, and query parameters.
+- `find KEYWORD` - search the OpenAPI schema for paths, operation IDs, or summaries matching a keyword. Use this to discover new custom endpoints.
+- `search QUERY [--limit N]` - dynamically discovers the catalog search endpoint and executes search (catalog first, semantic fallback on server).
+- `semantic QUERY [--limit N] [--threshold VALUE]` - dynamically discovers the semantic/RAG search endpoint (POST or GET) and maps query, limit, and similarity threshold parameters.
+- `book BOOK_ID` - dynamically discovers the book detail endpoint and fetches metadata.
+- `download BOOK_ID [--output PATH] [--output-dir DIR] [--format FMT] [--check-virus]` - dynamically discovers the book file retrieval/download endpoint and downloads the book.
+- `cover BOOK_ID [--output PATH] [--output-dir DIR]` - dynamically discovers the cover image retrieval endpoint and downloads the cover.
+- `stats` - dynamically discovers the library/RAG statistics endpoint and fetches metrics.
+- `status` - dynamically discovers the health/database status endpoint and retrieves diagnostic status.
+- `upload FILE [--check-virus]` - dynamically discovers the book upload endpoint and uploads the local file using multipart form-data.
+- `request METHOD PATH [--query KEY=VALUE ...] [--body JSON] [--output PATH] [--output-dir DIR]` - fallback command to call an explicit endpoint when needed.
 
 Show documentation URLs:
 
@@ -153,6 +135,12 @@ List available API paths with methods and parameters:
 
 ```bash
 python3 /skills/calibre-ebooks/scripts/books_api_client.py paths
+```
+
+Search for endpoints matching a keyword (e.g. "enrich"):
+
+```bash
+python3 /skills/calibre-ebooks/scripts/books_api_client.py find "enrich"
 ```
 
 Flexible catalog-first search, with semantic fallback handled by the server:
@@ -173,23 +161,27 @@ Get book details by ID using endpoint discovery from OpenAPI:
 python3 /skills/calibre-ebooks/scripts/books_api_client.py book 123
 ```
 
-Save a book cover image when the API exposes the cover endpoint:
+Save a book cover image dynamically:
 
 ```bash
-python3 /skills/calibre-ebooks/scripts/books_api_client.py request GET /api/books/123/cover --output-dir /workspace/tmp/calibre-covers
+python3 /skills/calibre-ebooks/scripts/books_api_client.py cover 123 --output-dir /skills/calibre-ebooks/tmp/calibre-covers
 ```
+
 external folder: `skills/calibre-ebooks/tmp/calibre-covers`
 
 Get library and RAG summary statistics:
 
 ```bash
-python3 /skills/calibre-ebooks/scripts/books_api_client.py request GET /api/stats/library
+python3 /skills/calibre-ebooks/scripts/books_api_client.py stats
 ```
 
 Select a random book from the API catalog when the OpenAPI spec exposes a
 pagination/list endpoint:
 
 ```bash
+# First find the list/books endpoint:
+python3 /skills/calibre-ebooks/scripts/books_api_client.py find "books"
+# Then run request on the discovered path:
 python3 /skills/calibre-ebooks/scripts/books_api_client.py request GET /api/books --query limit=1000
 ```
 
@@ -201,19 +193,16 @@ python3 /skills/calibre-ebooks/scripts/books_api_client.py request GET /books/12
 python3 /skills/calibre-ebooks/scripts/books_api_client.py request POST /search --body '{"query":"python","limit":10}'
 ```
 
-Save a file response when the API exposes a local file-access endpoint:
+Save a file response dynamically:
 
 ```bash
-python3 /skills/calibre-ebooks/scripts/books_api_client.py request GET /api/books/123/file --output-dir /skills/calibre-ebooks/tmp/downloads
-python3 /skills/calibre-ebooks/scripts/books_api_client.py request GET /books/123/download --query format=EPUB --output-dir /skills/calibre-ebooks/tmp/downloads
+python3 /skills/calibre-ebooks/scripts/books_api_client.py download 123 --output-dir /skills/calibre-ebooks/tmp/downloads
+python3 /skills/calibre-ebooks/scripts/books_api_client.py download 123 --format EPUB --output-dir /skills/calibre-ebooks/tmp/downloads
 ```
 
 external folder `skills/calibre-ebooks/tmp/downloads`
 
-When the running API exposes `/api/books/{id}/file`, prefer it for local access:
-the server returns the selected available Calibre format with the `X-Book-Format`
-header. Use `/api/books/{id}/pdf` only when the user explicitly needs PDF or the
-OpenAPI metadata confirms that PDF is available.
+When downloading a book, the dynamically resolved endpoint returns the selected available Calibre format with the `X-Book-Format` header. If a specific format (e.g. PDF or EPUB) is desired, supply the `--format` option.
 
 For local file exports meant to be sent as attachments to an authorized user,
 save them in `/skills/calibre-ebooks/tmp/downloads`; externally this maps to
@@ -241,12 +230,12 @@ If `BOOKS_API_URL` is set, the client uses it instead of
 
 ## Calibre metadata.db Diagnostics
 
-Before starting a Calibre sync, when `/health` reports degraded status, or when
+Before starting a Calibre sync, when health status reports degraded status, or when
 the Books API returns `calibre_metadata_db_unavailable`, diagnose the configured
 `CALIBRE_DB_PATH` through:
 
 ```bash
-python3 /skills/calibre-ebooks/scripts/books_api_client.py request GET /api/books/calibre-db/status
+python3 /skills/calibre-ebooks/scripts/books_api_client.py status
 ```
 
 The diagnostic response includes:
@@ -276,7 +265,7 @@ Agent behavior:
 
 Every book question should help the group conversation continue. Treat local
 availability as one part of the answer, not as the whole answer. Prefer a
-fluid paragraph or two over checklist-style replies.
+fluid paragraph or two over checklist-style replies. 
 
 When a user asks about a book, author, genre, topic, edition, or reading path:
 
@@ -312,18 +301,13 @@ For a missing book, the visible reply should usually flow like this:
 6. One invitation to continue: similar books in the local library, related
    authors, reading order, or a short explanation of the topic.
 
-Do not tell the group that the item was written to memory,
-`calibre-missing-books.md`, logs, queues, or any other internal file. The public
+Do not tell the group that the item was written to the download
+queue, logs, or any other internal file. The public
 wording is only that Carlos Delfino was informed about the absence.
 
 Example missing-book voice:
 
-`The book you mentioned is interesting because it enters a discussion about
-memory, identity, and how personal experience shapes our choices. It is not
-in the local library yet, but you can usually find it through lawful channels
-such as Amazon, Google Books, or the publisher. I have informed Carlos Delfino
-about the absence; he will try to find it. If you want, I can search the local
-collection for something in the same line while you wait.`
+`The book you mentioned is interesting because it enters a discussion about memory, identity, and how personal experience shapes our choices. It is not in the local library yet, but you can usually find it through lawful channels such as Amazon, Google Books, or the publisher. I have informed Carlos Delfino about the absence; he will try to find it. If you want, I can search the local collection for something in the same line while you wait.`
 
 Avoid dead-end replies such as only saying that the title is missing, only
 listing IDs, mentioning internal memory/logging, or ending with a bare
@@ -343,8 +327,7 @@ In that section:
   ASINs, ISBNs, publisher pages, or official sites.
 - State which details came from each source: title, author, publisher, year,
   synopsis, subject, edition, ISBN, official page, or public availability.
-- If the information came from the local library, cite it as `local Calibre
-  library` and expose only user-safe details such as title, author, id, and
+- If the information came from the local library, cite it as `local Calibre library` and expose only user-safe details such as title, author, id, and
   formats.
 - Do not cite internal commands, API endpoints, local filesystem paths, raw JSON,
   logs, OpenAPI schemas, or runtime diagnostics as references.
@@ -355,11 +338,9 @@ Recommended shape:
 
 `References`
 
-`- Google Books: volume page consulted for title, author, publisher, and
-synopsis. <confirmed link>`
+`- Google Books: volume page consulted for title, author, publisher, and synopsis. <confirmed link>`
 
-`- Publisher: official page consulted for description and edition data.
-<confirmed link>`
+`- Publisher: official page consulted for description and edition data. <confirmed link>`
 
 ## User-Facing Privacy
 
@@ -420,7 +401,7 @@ categories, RAG chunks/excerpts, embedding model, chunk size, or
 overlap, call:
 
 ```bash
-python3 /skills/calibre-ebooks/scripts/books_api_client.py request GET /api/stats/library
+python3 /skills/calibre-ebooks/scripts/books_api_client.py stats
 ```
 
 Trigger this workflow for questions like:
@@ -505,10 +486,9 @@ catalog/title search.
    semantic search fail or the RAG base is unavailable. If RAG is unavailable,
    state that the catalog search was tried and the semantic RAG fallback could
    not be used.
-6. When the book is not found, append a Markdown entry to
-   `memory/calibre-missing-books.md` so Carlos can research it later. Include
-   date, requested title/name, author(s) if the user supplied them, requester
-   context if useful, and a short note of which searches failed.
+6. When the book is not found, add it to the download queue by calling the skill
+   queue command: `python3 /skills/calibre-ebooks/scripts/books_api_client.py queue "title" --author "author" [other options]`. This will
+   record the request on the server so Carlos Delfino or the system can retrieve it later.
 7. After recording the missing book, suggest up to three alternatives from the
    existing library when possible. Infer category, style, genre, author,
    subject, and theme from the request and from any RAG snippets returned. Search
@@ -523,9 +503,9 @@ catalog/title search.
    requested book or subject is about when you can verify it, connect it to a
    useful theme, then invite the reader to ask for similar books, context,
    author background, or a reading route.
-9. In the visible reply, do not mention that the missing book was registered in
-   memory or any internal file. Say only that Carlos Delfino was informed about
-   the absence and will try to find it.
+10. In the visible reply, do not mention that the missing book was registered in
+    memory or any internal file. Say only that Carlos Delfino was informed about
+    the absence and will try to find it.
 
 Alternative suggestions should include:
 
@@ -594,9 +574,9 @@ Response goals:
    quiet classics. Avoid heavy, technical, violent, polemical, or dense books.
 3. Search the local Calibre library first when available. If a suitable local
    book is confirmed, mention title, author, id, and formats naturally.
-4. If the selected bedtime book is not confirmed in the local library, append an
-   internal missing-book entry to `memory/calibre-missing-books.md` so it can be
-   obtained later. Do not tell the group about memory, files, queues, logs, or
+4. If the selected bedtime book is not confirmed in the local library, add it to
+   the download queue by calling the skill's queue command (`books_api_client.py queue`)
+   so it can be obtained later. Do not tell the group about memory, files, queues, logs, or
    internal registration.
 5. Public wording for missing bedtime suggestions should be:
    "This one is not in the local library yet, but I have informed Carlos Delfino
@@ -608,18 +588,12 @@ Response goals:
 
 Example:
 
-`Good night. To close the day lightly, I would suggest The Little Prince, by
-Antoine de Saint-Exupery: it is a brief, luminous read, good for remembering
-friendship, care, and simplicity before sleeping. This one is not in the local
-library yet, but I have informed Carlos Delfino so he can try to find it. May
-the reading be short and sleep come gently.`
+`Good night. To close the day lightly, I would suggest The Little Prince, by Antoine de Saint-Exupery: it is a brief, luminous read, good for remembering friendship, care, and simplicity before sleeping. This one is not in the local library yet, but I have informed Carlos Delfino so he can try to find it. May the reading be short and sleep come gently.`
 
 Preferred API workflow:
 
-1. Run `books_api_client.py paths` or `openapi` unless the list endpoint is
-   already known in this session.
-2. Fetch a broad page from the list endpoint, for example:
-   `python3 /skills/calibre-ebooks/scripts/books_api_client.py request GET /api/books --query limit=1000`
+1. Find the appropriate book listing endpoint using `books_api_client.py find "books"` or `paths` unless it is already known in this session.
+2. Fetch a broad page from the listing endpoint (e.g. if the path is `/api/books`, run `python3 /skills/calibre-ebooks/scripts/books_api_client.py request GET /api/books --query limit=1000`).
 3. Randomly choose exactly one item from the returned `books` array.
 4. Return a useful reader-facing recommendation with title, authors,
    publisher, publication year, formats, id, synopsis/description, key
@@ -676,9 +650,8 @@ Recommended response shape for random suggestions:
   related excerpt/match, not as confirmed availability of the requested exact
   title. Use `books_api_client.py semantic` or `document_semantic_rag.py --search`
   only for explicit RAG/content testing or local RAG maintenance.
-- When a requested book is still not found, write it to
-  `memory/calibre-missing-books.md` before replying. Keep entries append-only
-  unless Carlos asks to organize the file.
+- When a requested book is still not found, queue it for download using the skill's queue
+  command before replying.
 - If a requested book is missing, try alternatives from the same category,
   style, or theme before ending the reply. Make clear that suggestions come from
   the current local library. If useful, suggest consulting Google Books or

@@ -117,15 +117,21 @@ def api_url(base: str, path: str, params: dict[str, str] | None = None) -> str:
     return f"{url}{'&' if urlparse(url).query else '?'}{query}" if query else url
 
 
-def request_bytes(url: str, method: str = "GET", body: str | None = None) -> tuple[bytes, dict[str, str]]:
+def request_bytes(url: str, method: str = "GET", body: str | bytes | None = None, extra_headers: dict[str, str] | None = None) -> tuple[bytes, dict[str, str]]:
     headers = {}
     token = api_key()
     if token:
         headers["Authorization"] = f"Bearer {token}"
+    if extra_headers:
+        headers.update(extra_headers)
     data = None
     if body is not None:
-        headers["Content-Type"] = "application/json"
-        data = body.encode("utf-8")
+        if isinstance(body, str):
+            if "Content-Type" not in headers:
+                headers["Content-Type"] = "application/json"
+            data = body.encode("utf-8")
+        else:
+            data = body
     request = Request(url, data=data, headers=headers, method=method.upper())
     try:
         with urlopen(request) as response:
@@ -140,8 +146,8 @@ def request_bytes(url: str, method: str = "GET", body: str | None = None) -> tup
         raise RuntimeError(f"{method.upper()} {urlparse(url).path} failed: {error.reason}") from error
 
 
-def request_json(url: str, method: str = "GET", body: str | None = None) -> Any:
-    payload, _headers = request_bytes(url, method=method, body=body)
+def request_json(url: str, method: str = "GET", body: str | bytes | None = None, extra_headers: dict[str, str] | None = None) -> Any:
+    payload, _headers = request_bytes(url, method=method, body=body, extra_headers=extra_headers)
     return json.loads(payload.decode("utf-8"))
 
 
@@ -151,6 +157,39 @@ def get_openapi(base: str) -> Any:
 
 def operation_params(operation: dict[str, Any], location: str | None = None) -> list[dict[str, Any]]:
     return [param for param in operation.get("parameters", []) if location is None or param.get("in") == location]
+
+
+def resolve_schema(schema: dict[str, Any], openapi: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(schema, dict):
+        return {}
+    if "$ref" in schema:
+        ref = schema["$ref"]
+        parts = ref.split("/")
+        current = openapi
+        for part in parts:
+            if part == "#":
+                continue
+            if isinstance(current, dict) and part in current:
+                current = current[part]
+            else:
+                return {}
+        return resolve_schema(current, openapi)
+    return schema
+
+
+def get_request_body_properties(path: str, method: str, openapi: dict[str, Any]) -> list[str]:
+    try:
+        op = openapi.get("paths", {}).get(path, {}).get(method.lower(), {})
+        body = op.get("requestBody", {})
+        content = body.get("content", {})
+        json_content = content.get("application/json", {})
+        schema = json_content.get("schema", {})
+        resolved = resolve_schema(schema, openapi)
+        if resolved.get("type") == "object":
+            return list(resolved.get("properties", {}).keys())
+    except Exception:
+        pass
+    return []
 
 
 def summarize_paths(openapi: dict[str, Any]) -> list[dict[str, Any]]:
@@ -218,8 +257,261 @@ def find_book_candidates(openapi: dict[str, Any]) -> list[dict[str, Any]]:
     return sorted(rows, key=lambda item: item["score"], reverse=True)
 
 
+def score_semantic_candidate(row: dict[str, Any], openapi: dict[str, Any]) -> int:
+    haystack = f"{row['path']} {row.get('operationId') or ''} {row.get('summary') or ''}".lower()
+    score = 0
+    if row["method"] == "POST":
+        score += 2
+        body_props = get_request_body_properties(row["path"], "POST", openapi)
+        if any(p in body_props for p in ["query", "q", "text"]):
+            score += 5
+        if any(p in body_props for p in ["limit", "threshold", "score"]):
+            score += 2
+    elif row["method"] == "GET":
+        score += 1
+        if any(p in row["query"] for p in ["query", "q", "text"]):
+            score += 3
+    keywords = ["semantic", "rag", "content", "vector", "embedding", "excerpt", "context"]
+    for word in keywords:
+        if word in haystack:
+            score += 4
+    if row["pathParams"]:
+        score -= 5
+    return score
+
+
+def find_semantic_candidates(openapi: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = []
+    for row in summarize_paths(openapi):
+        scored = {**row, "score": score_semantic_candidate(row, openapi)}
+        if scored["score"] > 0:
+            rows.append(scored)
+    return sorted(rows, key=lambda item: item["score"], reverse=True)
+
+
+def score_download_candidate(row: dict[str, Any]) -> int:
+    haystack = f"{row['path']} {row.get('operationId') or ''} {row.get('summary') or ''}".lower()
+    score = 0
+    if row["method"] == "GET" and row["pathParams"]:
+        score += 2
+        id_param = row["pathParams"][0]
+        if re.search(r"(^id$|book.*id|calibre.*id)", id_param, re.I):
+            score += 3
+        if "file" in haystack:
+            score += 4
+        if "download" in haystack:
+            score += 4
+        if any(fmt in haystack for fmt in ["epub", "pdf", "mobi", "azw3"]):
+            score += 2
+        if "cover" in haystack or "image" in haystack:
+            score -= 10
+        if "openlibrary" in haystack:
+            score -= 2
+    return score
+
+
+def find_download_candidates(openapi: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = []
+    for row in summarize_paths(openapi):
+        scored = {**row, "score": score_download_candidate(row)}
+        if scored["score"] > 0:
+            rows.append(scored)
+    return sorted(rows, key=lambda item: item["score"], reverse=True)
+
+
+def score_cover_candidate(row: dict[str, Any]) -> int:
+    haystack = f"{row['path']} {row.get('operationId') or ''} {row.get('summary') or ''}".lower()
+    score = 0
+    if row["method"] == "GET" and row["pathParams"]:
+        score += 2
+        id_param = row["pathParams"][0]
+        if re.search(r"(^id$|book.*id|calibre.*id)", id_param, re.I):
+            score += 3
+        if "cover" in haystack:
+            score += 6
+        if "image" in haystack or "thumbnail" in haystack:
+            score += 3
+        if "file" in haystack or "download" in haystack:
+            score -= 2
+    return score
+
+
+def find_cover_candidates(openapi: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = []
+    for row in summarize_paths(openapi):
+        scored = {**row, "score": score_cover_candidate(row)}
+        if scored["score"] > 0:
+            rows.append(scored)
+    return sorted(rows, key=lambda item: item["score"], reverse=True)
+
+
+def score_stats_candidate(row: dict[str, Any]) -> int:
+    haystack = f"{row['path']} {row.get('operationId') or ''} {row.get('summary') or ''}".lower()
+    score = 0
+    if row["method"] == "GET" and not row["pathParams"]:
+        if "stats" in haystack or "statistics" in haystack:
+            score += 6
+        if "summary" in haystack:
+            score += 3
+        if "library" in haystack:
+            score += 2
+        if "count" in haystack:
+            score += 1
+    return score
+
+
+def find_stats_candidates(openapi: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = []
+    for row in summarize_paths(openapi):
+        scored = {**row, "score": score_stats_candidate(row)}
+        if scored["score"] > 0:
+            rows.append(scored)
+    return sorted(rows, key=lambda item: item["score"], reverse=True)
+
+
+def score_status_candidate(row: dict[str, Any]) -> int:
+    haystack = f"{row['path']} {row.get('operationId') or ''} {row.get('summary') or ''}".lower()
+    score = 0
+    if row["method"] == "GET" and not row["pathParams"]:
+        if "health" in haystack:
+            score += 5
+        if "status" in haystack:
+            score += 4
+        if "db" in haystack or "database" in haystack:
+            score += 2
+        if "calibre" in haystack:
+            score += 1
+    return score
+
+
+def find_status_candidates(openapi: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = []
+    for row in summarize_paths(openapi):
+        scored = {**row, "score": score_status_candidate(row)}
+        if scored["score"] > 0:
+            rows.append(scored)
+    return sorted(rows, key=lambda item: item["score"], reverse=True)
+
+
+def score_upload_candidate(row: dict[str, Any]) -> int:
+    haystack = f"{row['path']} {row.get('operationId') or ''} {row.get('summary') or ''}".lower()
+    score = 0
+    if row["method"] in {"POST", "PUT"}:
+        if "upload" in haystack:
+            score += 6
+        if "import" in haystack:
+            score += 4
+        if "add" in haystack:
+            score += 3
+        if "file" in haystack:
+            score += 1
+    return score
+
+
+def find_upload_candidates(openapi: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = []
+    for row in summarize_paths(openapi):
+        scored = {**row, "score": score_upload_candidate(row)}
+        if scored["score"] > 0:
+            rows.append(scored)
+    return sorted(rows, key=lambda item: item["score"], reverse=True)
+
+
+def score_queue_candidate(row: dict[str, Any]) -> int:
+    haystack = f"{row['path']} {row.get('operationId') or ''} {row.get('summary') or ''}".lower()
+    score = 0
+    if row["method"] == "POST":
+        if "downloads/queue" in row["path"]:
+            score += 10
+        elif "queue" in haystack and "download" in haystack:
+            score += 8
+        elif "queue" in haystack:
+            score += 4
+    return score
+
+
+def find_queue_candidates(openapi: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = []
+    for row in summarize_paths(openapi):
+        scored = {**row, "score": score_queue_candidate(row)}
+        if scored["score"] > 0:
+            rows.append(scored)
+    return sorted(rows, key=lambda item: item["score"], reverse=True)
+
+
+
 def replace_path_param(path: str, name: str, value: str) -> str:
     return path.replace(f"{{{name}}}", quote(str(value), safe=""))
+
+
+def map_path_params(path: str, path_params: list[str], provided_args: dict[str, Any]) -> str:
+    for name in path_params:
+        value = None
+        if name in provided_args:
+            value = provided_args[name]
+        elif len(provided_args) == 1:
+            value = list(provided_args.values())[0]
+        else:
+            for k, v in provided_args.items():
+                if k.lower() in name.lower() or name.lower() in k.lower():
+                    value = v
+                    break
+        if value is None:
+            raise ValueError(f"Missing required path parameter: {name}")
+        path = replace_path_param(path, name, value)
+    return path
+
+
+def map_query_params(candidate_query: list[str], provided_args: dict[str, Any]) -> dict[str, str]:
+    params = {}
+    for name in candidate_query:
+        for key, val in provided_args.items():
+            if val is None:
+                continue
+            is_match = False
+            if key.lower() == name.lower():
+                is_match = True
+            elif key == "query" and name in QUERY_NAMES:
+                is_match = True
+            elif key == "limit" and name in LIMIT_NAMES:
+                is_match = True
+            elif key == "threshold" and name in ["threshold", "score", "min_score", "minScore"]:
+                is_match = True
+            elif key == "format" and name in ["format", "fmt", "ext", "extension"]:
+                is_match = True
+            elif key == "check_virus" and name in ["check_virus", "checkVirus", "virus_scan", "scan"]:
+                is_match = True
+            
+            if is_match:
+                params[name] = str(val)
+                break
+    return params
+
+
+def build_multipart_formdata(fields: dict[str, str], files: dict[str, tuple[str, bytes]]) -> tuple[bytes, str]:
+    boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW"
+    body = []
+    for key, value in fields.items():
+        body.append(f"--{boundary}".encode("utf-8"))
+        body.append(f'Content-Disposition: form-data; name="{key}"'.encode("utf-8"))
+        body.append(b"")
+        body.append(value.encode("utf-8"))
+    for key, (filename, content) in files.items():
+        body.append(f"--{boundary}".encode("utf-8"))
+        body.append(f'Content-Disposition: form-data; name="{key}"; filename="{filename}"'.encode("utf-8"))
+        ext = Path(filename).suffix.lower()
+        content_type = "application/octet-stream"
+        if ext == ".pdf":
+            content_type = "application/pdf"
+        elif ext == ".epub":
+            content_type = "application/epub+zip"
+        body.append(f"Content-Type: {content_type}".encode("utf-8"))
+        body.append(b"")
+        body.append(content)
+    body.append(f"--{boundary}--".encode("utf-8"))
+    body.append(b"")
+    payload = b"\r\n".join(body)
+    return payload, f"multipart/form-data; boundary={boundary}"
 
 
 def parse_query_pairs(pairs: list[str]) -> dict[str, str]:
@@ -325,21 +617,44 @@ def command_search(base: str, openapi: dict[str, Any], query: str, limit: str | 
     raise RuntimeError(f"No usable search endpoint succeeded. Candidates:\n{json.dumps(attempted, ensure_ascii=False, indent=2)}")
 
 
-def command_semantic_search(base: str, query: str, limit: int, threshold: float) -> dict[str, Any]:
-    body = json.dumps(
-        {
-            "query": query,
-            "limit": max(1, min(int(limit), 50)),
-            "threshold": max(0.0, min(float(threshold), 1.0)),
-        },
-        ensure_ascii=False,
-    )
-    data = request_json(api_url(base, "/api/search/content"), method="POST", body=body)
-    return {
-        "endpoint": {"method": "POST", "path": "/api/search/content"},
-        "params": json.loads(body),
-        "data": data,
-    }
+def command_semantic_search(base: str, openapi: dict[str, Any], query: str, limit: int | None, threshold: float | None) -> dict[str, Any]:
+    candidates = find_semantic_candidates(openapi)
+    if not candidates:
+        raise RuntimeError("No semantic search endpoint found in OpenAPI.")
+    
+    candidate = candidates[0]
+    provided = {"query": query, "limit": limit, "threshold": threshold}
+    
+    if candidate["method"] == "POST":
+        body_props = get_request_body_properties(candidate["path"], "POST", openapi)
+        body = {}
+        query_prop = next((p for p in body_props if p in QUERY_NAMES), "query")
+        body[query_prop] = query
+        
+        limit_prop = next((p for p in body_props if p in LIMIT_NAMES), None)
+        if limit_prop and limit is not None:
+            body[limit_prop] = int(limit)
+            
+        threshold_prop = next((p for p in body_props if p in ["threshold", "score", "min_score", "minScore"]), None)
+        if threshold_prop and threshold is not None:
+            body[threshold_prop] = float(threshold)
+            
+        url = api_url(base, candidate["path"])
+        data = request_json(url, method="POST", body=json.dumps(body, ensure_ascii=False))
+        return {
+            "endpoint": {"method": "POST", "path": candidate["path"]},
+            "body": body,
+            "data": data,
+        }
+    else:
+        params = map_query_params(candidate["query"], provided)
+        url = api_url(base, candidate["path"], params)
+        data = request_json(url, method="GET")
+        return {
+            "endpoint": {"method": "GET", "path": candidate["path"]},
+            "params": params,
+            "data": data,
+        }
 
 
 def command_book(base: str, openapi: dict[str, Any], book_id: str) -> dict[str, Any]:
@@ -353,6 +668,178 @@ def command_book(base: str, openapi: dict[str, Any], book_id: str) -> dict[str, 
         except RuntimeError as error:
             attempted[-1]["error"] = str(error)
     raise RuntimeError(f"No usable book detail endpoint succeeded. Candidates:\n{json.dumps(attempted, ensure_ascii=False, indent=2)}")
+
+
+def command_download(base: str, openapi: dict[str, Any], book_id: str, args: argparse.Namespace) -> Any:
+    candidates = find_download_candidates(openapi)
+    if not candidates:
+        raise RuntimeError("No download/file endpoint found in OpenAPI.")
+    
+    candidate = candidates[0]
+    path = map_path_params(candidate["path"], candidate["pathParams"], {"book_id": book_id})
+    
+    provided = {}
+    if getattr(args, "format", None):
+        provided["format"] = args.format
+    if getattr(args, "check_virus", None):
+        provided["check_virus"] = args.check_virus
+    params = map_query_params(candidate["query"], provided)
+    
+    url = api_url(base, path, params)
+    payload, headers = request_bytes(url, method="GET")
+    content_type = headers.get("content-type", "")
+    
+    output_path = resolve_output_path(args.output, args.output_dir, path, headers, content_type)
+    if output_path:
+        output_path.write_bytes(payload)
+        return {
+            "endpoint": {"method": "GET", "path": candidate["path"]},
+            "output": str(output_path),
+            "bytes": len(payload),
+            "contentType": content_type
+        }
+    if "application/json" in content_type:
+        return json.loads(payload.decode("utf-8"))
+    return payload.decode("utf-8", errors="replace")
+
+
+def command_cover(base: str, openapi: dict[str, Any], book_id: str, args: argparse.Namespace) -> Any:
+    candidates = find_cover_candidates(openapi)
+    if not candidates:
+        raise RuntimeError("No cover endpoint found in OpenAPI.")
+    
+    candidate = candidates[0]
+    path = map_path_params(candidate["path"], candidate["pathParams"], {"book_id": book_id})
+    
+    url = api_url(base, path)
+    payload, headers = request_bytes(url, method="GET")
+    content_type = headers.get("content-type", "")
+    
+    output_path = resolve_output_path(args.output, args.output_dir, path, headers, content_type)
+    if output_path:
+        output_path.write_bytes(payload)
+        return {
+            "endpoint": {"method": "GET", "path": candidate["path"]},
+            "output": str(output_path),
+            "bytes": len(payload),
+            "contentType": content_type
+        }
+    if "application/json" in content_type:
+        return json.loads(payload.decode("utf-8"))
+    return payload.decode("utf-8", errors="replace")
+
+
+def command_stats(base: str, openapi: dict[str, Any]) -> Any:
+    candidates = find_stats_candidates(openapi)
+    if not candidates:
+        raise RuntimeError("No library/stats endpoint found in OpenAPI.")
+    
+    candidate = candidates[0]
+    url = api_url(base, candidate["path"])
+    return {
+        "endpoint": {"method": "GET", "path": candidate["path"]},
+        "data": request_json(url, method="GET")
+    }
+
+
+def command_status(base: str, openapi: dict[str, Any]) -> Any:
+    candidates = find_status_candidates(openapi)
+    if not candidates:
+        raise RuntimeError("No health/status endpoint found in OpenAPI.")
+    
+    candidate = candidates[0]
+    url = api_url(base, candidate["path"])
+    return {
+        "endpoint": {"method": "GET", "path": candidate["path"]},
+        "data": request_json(url, method="GET")
+    }
+
+
+def command_upload(base: str, openapi: dict[str, Any], file_path: str, check_virus: bool) -> Any:
+    candidates = find_upload_candidates(openapi)
+    if not candidates:
+        raise RuntimeError("No upload/import endpoint found in OpenAPI.")
+    
+    candidate = candidates[0]
+    path_obj = Path(file_path)
+    if not path_obj.is_file():
+        raise RuntimeError(f"File not found: {file_path}")
+        
+    content = path_obj.read_bytes()
+    file_field_name = "file"
+    
+    fields = {}
+    if check_virus:
+        if "check_virus" not in candidate["query"]:
+            fields["check_virus"] = "true"
+            
+    files = {file_field_name: (path_obj.name, content)}
+    body_payload, content_type_header = build_multipart_formdata(fields, files)
+    
+    headers = {"Content-Type": content_type_header}
+    provided = {}
+    if check_virus:
+        provided["check_virus"] = "true"
+    params = map_query_params(candidate["query"], provided)
+    
+    url = api_url(base, candidate["path"], params)
+    payload, resp_headers = request_bytes(url, method=candidate["method"], body=body_payload, extra_headers=headers)
+    resp_content_type = resp_headers.get("content-type", "")
+    if "application/json" in resp_content_type:
+        return {
+            "endpoint": {"method": candidate["method"], "path": candidate["path"]},
+            "data": json.loads(payload.decode("utf-8"))
+        }
+    return {
+        "endpoint": {"method": candidate["method"], "path": candidate["path"]},
+        "data": payload.decode("utf-8", errors="replace")
+    }
+
+
+def command_queue(base: str, openapi: dict[str, Any], title: str, args: argparse.Namespace) -> Any:
+    candidates = find_queue_candidates(openapi)
+    if not candidates:
+        raise RuntimeError("No queue endpoint found in OpenAPI.")
+    
+    candidate = candidates[0]
+    
+    body = {
+        "title": title,
+        "author": args.author,
+        "source": args.source,
+        "source_id": args.source_id,
+        "olid": args.olid,
+        "ocaid": args.ocaid,
+        "download_url": args.download_url,
+        "preferred_format": args.preferred_format,
+        "priority": args.priority
+    }
+    
+    body = {k: v for k, v in body.items() if v is not None}
+    
+    url = api_url(base, candidate["path"])
+    payload, headers = request_bytes(url, method=candidate["method"], body=json.dumps(body), extra_headers={"Content-Type": "application/json"})
+    
+    content_type = headers.get("content-type", "")
+    if "application/json" in content_type:
+        return {
+            "endpoint": {"method": candidate["method"], "path": candidate["path"]},
+            "data": json.loads(payload.decode("utf-8"))
+        }
+    return {
+        "endpoint": {"method": candidate["method"], "path": candidate["path"]},
+        "data": payload.decode("utf-8", errors="replace")
+    }
+
+
+def command_find(openapi: dict[str, Any], keyword: str) -> list[dict[str, Any]]:
+    keyword = keyword.lower()
+    matches = []
+    for row in summarize_paths(openapi):
+        haystack = f"{row['path']} {row.get('operationId') or ''} {row.get('summary') or ''}".lower()
+        if keyword in haystack:
+            matches.append(row)
+    return matches
 
 
 def command_request(base: str, method: str, path: str, args: argparse.Namespace) -> Any:
@@ -387,8 +874,13 @@ def build_parser() -> argparse.ArgumentParser:
             "  books_api_client.py search \"python\" --limit 10\n"
             "  books_api_client.py semantic \"ethics and virtue\" --limit 5 --threshold 0.25\n"
             "  books_api_client.py book 123\n"
-            "  books_api_client.py request GET /api/books --query limit=100\n"
-            "  books_api_client.py request GET /api/books/123/file --output-dir tmp/downloads"
+            "  books_api_client.py download 123 --output-dir tmp/downloads\n"
+            "  books_api_client.py cover 123 --output-dir tmp/calibre-covers\n"
+            "  books_api_client.py stats\n"
+            "  books_api_client.py status\n"
+            "  books_api_client.py upload ebook.pdf --check-virus\n"
+            "  books_api_client.py find \"enrich\"\n"
+            "  books_api_client.py request GET /api/books --query limit=100"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -418,7 +910,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     semantic = sub.add_parser(
         "semantic",
-        help="Search embedded book content through the Books API semantic/RAG endpoint.",
+        help="Search embedded book content through the Books API semantic/RAG endpoint discovered dynamically.",
     )
     semantic.add_argument("query", help="Question, topic, or phrase to search in embedded book content.")
     semantic.add_argument(
@@ -441,6 +933,54 @@ def build_parser() -> argparse.ArgumentParser:
         help="Fetch book details by ID using the best matching detail endpoint discovered from OpenAPI.",
     )
     book.add_argument("book_id", help="Book identifier accepted by the API path parameter.")
+
+    download = sub.add_parser(
+        "download",
+        help="Download book file by ID using the best matching endpoint discovered dynamically.",
+    )
+    download.add_argument("book_id", help="Book identifier.")
+    download.add_argument("--format", help="Optional desired format.")
+    download.add_argument("--check-virus", action="store_true", help="Enable virus scan on download if supported.")
+    download.add_argument("--output", help="Write to this file or directory.")
+    download.add_argument("--output-dir", help="Write to this directory with API-provided filename.")
+
+    cover = sub.add_parser(
+        "cover",
+        help="Download cover image by ID using the best matching endpoint discovered dynamically.",
+    )
+    cover.add_argument("book_id", help="Book identifier.")
+    cover.add_argument("--output", help="Write to this file or directory.")
+    cover.add_argument("--output-dir", help="Write to this directory with API-provided filename.")
+
+    sub.add_parser("stats", help="Get library stats using the best matching endpoint discovered dynamically.")
+    sub.add_parser("status", help="Get database status using the best matching endpoint discovered dynamically.")
+
+    upload = sub.add_parser(
+        "upload",
+        help="Upload an ebook file using the best matching endpoint discovered dynamically.",
+    )
+    upload.add_argument("file_path", help="Path to local file to upload.")
+    upload.add_argument("--check-virus", action="store_true", help="Enable virus scan on upload if supported.")
+
+    queue = sub.add_parser(
+        "queue",
+        help="Add a book to the download queue using the best matching endpoint discovered dynamically.",
+    )
+    queue.add_argument("title", help="Book title.")
+    queue.add_argument("--author", help="Book author.")
+    queue.add_argument("--source", default="openlibrary", help="Source: 'openlibrary' or 'archive'.")
+    queue.add_argument("--source-id", help="Source-specific ID.")
+    queue.add_argument("--olid", help="OpenLibrary ID.")
+    queue.add_argument("--ocaid", help="Archive.org ID.")
+    queue.add_argument("--download-url", help="Direct download URL.")
+    queue.add_argument("--preferred-format", default="PDF", help="Preferred format: PDF, EPUB, Kindle.")
+    queue.add_argument("--priority", type=int, default=0, help="Download priority (higher = first).")
+
+    find = sub.add_parser(
+        "find",
+        help="Search the OpenAPI schema for endpoints matching a keyword.",
+    )
+    find.add_argument("keyword", help="Keyword to search in paths, summaries, and operation IDs.")
 
     request = sub.add_parser(
         "request",
@@ -505,9 +1045,23 @@ def main(argv: list[str]) -> int:
     elif args.command == "search":
         print_result(command_search(base, get_openapi(base), args.query, args.limit))
     elif args.command == "semantic":
-        print_result(command_semantic_search(base, args.query, args.limit, args.threshold))
+        print_result(command_semantic_search(base, get_openapi(base), args.query, args.limit, args.threshold))
     elif args.command == "book":
         print_result(command_book(base, get_openapi(base), args.book_id))
+    elif args.command == "download":
+        print_result(command_download(base, get_openapi(base), args.book_id, args))
+    elif args.command == "cover":
+        print_result(command_cover(base, get_openapi(base), args.book_id, args))
+    elif args.command == "stats":
+        print_result(command_stats(base, get_openapi(base)))
+    elif args.command == "status":
+        print_result(command_status(base, get_openapi(base)))
+    elif args.command == "upload":
+        print_result(command_upload(base, get_openapi(base), args.file_path, args.check_virus))
+    elif args.command == "queue":
+        print_result(command_queue(base, get_openapi(base), args.title, args))
+    elif args.command == "find":
+        print_result(command_find(get_openapi(base), args.keyword))
     elif args.command == "request":
         print_result(command_request(base, args.method, args.path, args))
     return 0

@@ -2,10 +2,10 @@
 
 _Learn about the person you're helping. Update this as you go._
 
-- **Name:**
+- **Name:** Membros do Grupo Rapport Bibliotecário
 - **What to call them:**
 - **Pronouns:** _(optional)_
-- **Timezone:**
+- **Timezone:** América/Fortaleza
 - **Notes:**
 
 ## Context

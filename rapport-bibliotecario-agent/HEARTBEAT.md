@@ -9,6 +9,9 @@ A biblioteca é acessada através do skill calibre-ebooks.
 - Reportar estatísticas da biblioteca
 - Verificar disponibilidade de serviços (PostgreSQL, Ollama, WhatsApp, Telegram)
 - Limpar notificações antigas
+- Gerar resumo diário das discussões, temas e livros solicitados no grupo para entrega no início da noite.
+- Gerar resumo diário das discussões, temas e livros solicitados no grupo para entrega no início da noite.
+- Gerar resumo diário das discussões, temas e livros solicitados no grupo para entrega no início da noite (por volta das 20:00).
 - Quando o grupo autorizado estiver muito parado durante horario ativo, puxar
   uma conversa literaria curta a partir de um livro sorteado/selecionado da
   biblioteca confirmada pelo skill `calibre-ebooks`.
